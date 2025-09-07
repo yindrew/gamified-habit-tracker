@@ -18,3 +18,7 @@ supportive notes ?
 remove the little side arrow next to the habit. clicking on the habit is intuitive enough 
 
 clean up the top, the "My Habits" + doesn't look all that clean. look at some designs. 
+
+figure out social aspect, buddy system, group habits? 
+
+notification tracking as well. Clean up the schema originally. Building the habit shoud take a while. set yourself up for success. if task isn't done, you can setup a notification before that gives a quick nudge. 
