@@ -127,27 +127,49 @@ extension Habit {
     func canUseCopingPlan(for date: Date) -> Bool {
         guard let copingPlan = copingPlan, !copingPlan.isEmpty else { return false }
         
+        // Only allow coping plan for habits with at least 7-day streak
+        guard currentStreak >= 7 else { return false }
+        
         let calendar = Calendar.current
         let yesterday = calendar.date(byAdding: .day, value: -1, to: date)!
         
-        // Can use coping plan if yesterday was a scheduled day and we didn't complete it
-        if isScheduledForDate(yesterday) {
+        // Only show coping plan if yesterday was a scheduled day and we didn't meet the threshold
+        guard isScheduledForDate(yesterday) else { return false }
+        
+        // Don't show coping plan for habits created today or yesterday
+        if let createdDate = createdDate {
+            let createdStart = calendar.startOfDay(for: createdDate)
             let yesterdayStart = calendar.startOfDay(for: yesterday)
-            let todayStart = calendar.startOfDay(for: date)
-            
-            // Check if we completed the habit yesterday
-            let yesterdayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", yesterdayStart as NSDate, todayStart as NSDate))
-            
-            // Also check if we already used coping plan today
-            let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart)!
-            let copingUsedToday = lastCopingDate != nil && 
-                                 lastCopingDate! >= todayStart && 
-                                 lastCopingDate! < todayEnd
-            
-            return (yesterdayCompletions?.count ?? 0) == 0 && !copingUsedToday
+            if createdStart >= yesterdayStart {
+                return false
+            }
         }
         
-        return false
+        let yesterdayStart = calendar.startOfDay(for: yesterday)
+        let todayStart = calendar.startOfDay(for: date)
+        
+        // Check if we met the target threshold yesterday
+        let yesterdayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", yesterdayStart as NSDate, todayStart as NSDate))
+        let completionCount = yesterdayCompletions?.count ?? 0
+        let metThreshold = completionCount >= targetFrequency
+        
+        // Also check if we already used coping plan today
+        let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart)!
+        let copingUsedToday = lastCopingDate != nil && 
+                             lastCopingDate! >= todayStart && 
+                             lastCopingDate! < todayEnd
+        
+        // Prevent multiple coping plans within a short period (7 days cooldown)
+        let copingCooldownViolated: Bool
+        if let lastCoping = lastCopingDate {
+            let daysSinceLastCoping = calendar.dateComponents([.day], from: lastCoping, to: date).day ?? 0
+            copingCooldownViolated = daysSinceLastCoping < 7
+        } else {
+            copingCooldownViolated = false
+        }
+        
+        // Coping plan available if threshold was missed, not used today, and not in cooldown
+        return !metThreshold && !copingUsedToday && !copingCooldownViolated
     }
     
     /// Check if coping plan can be used today
@@ -158,7 +180,9 @@ extension Habit {
     /// Complete the coping plan
     func completeCopingPlan() {
         lastCopingDate = Date()
-        // Don't break the streak - this maintains it
+        // Restore the streak by recalculating it with coping plan consideration
+        currentStreak = calculateScheduledStreak()
+        longestStreak = max(longestStreak, currentStreak)
     }
     
     /// Calculate streak considering schedule and coping plans
@@ -168,6 +192,15 @@ extension Habit {
         var streak: Int32 = 0
         var currentDate = today
         
+        // If we used coping plan today, start counting from yesterday
+        // because coping plan covers yesterday's missed habit, not today's
+        let copingUsedToday = lastCopingDate != nil && 
+                             calendar.isDate(lastCopingDate!, inSameDayAs: today)
+        
+        if copingUsedToday {
+            currentDate = calendar.date(byAdding: .day, value: -1, to: currentDate)!
+        }
+        
         // Look back to calculate current streak
         for _ in 0..<365 { // Max look back of 1 year
             if isScheduledForDate(currentDate) {
@@ -175,13 +208,14 @@ extension Habit {
                 
                 // Check if completed on this scheduled day
                 let dayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", currentDate as NSDate, nextDay as NSDate))
-                let completedThisDay = (dayCompletions?.count ?? 0) > 0
+                let completedThisDay = (dayCompletions?.count ?? 0) >= targetFrequency
                 
-                // Check if used coping plan the next day
-                let copingUsedNextDay = lastCopingDate != nil && 
-                                       calendar.isDate(lastCopingDate!, inSameDayAs: nextDay)
+                // Check if coping plan was used the next day to cover this missed day
+                // (Coping plan used on day X covers the missed habit from day X-1)
+                let copingUsedForThisDay = lastCopingDate != nil && 
+                                          calendar.isDate(lastCopingDate!, inSameDayAs: nextDay)
                 
-                if completedThisDay || copingUsedNextDay {
+                if completedThisDay || copingUsedForThisDay {
                     streak += 1
                 } else {
                     break // Streak broken
@@ -240,5 +274,45 @@ extension Habit {
             }
         }
         scheduleValue = bitmask
+    }
+    
+    // MARK: - Metric Helpers
+    
+    /// Current progress in metric units (completions × metricValue)
+    var currentProgress: Double {
+        return Double(completionsToday) * metricValue
+    }
+    
+    /// Current progress as formatted string with unit
+    var currentProgressString: String {
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = metricValue.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1
+        
+        let progressStr = formatter.string(from: NSNumber(value: currentProgress)) ?? "0"
+        let goalStr = formatter.string(from: NSNumber(value: goalValue)) ?? "0"
+        
+        return "\(progressStr)/\(goalStr) \(metricUnit ?? "times")"
+    }
+    
+    /// Progress percentage for display
+    var progressPercentage: Double {
+        guard goalValue > 0 else { return 0.0 }
+        return min(currentProgress / goalValue, 1.0)
+    }
+    
+    /// Whether the goal has been met today
+    var goalMetToday: Bool {
+        return currentProgress >= goalValue
+    }
+    
+    /// Completions today
+    private var completionsToday: Int32 {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        
+        let todayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate))
+        return Int32(todayCompletions?.count ?? 0)
     }
 }

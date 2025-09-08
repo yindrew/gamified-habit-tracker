@@ -15,6 +15,24 @@ struct HabitDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingEditHabit = false
     @State private var showingDeleteAlert = false
+    @State private var currentMonth = Date()
+    @State private var selectedTimePeriod: TimePeriod = .lastMonth
+    
+    enum TimePeriod: String, CaseIterable {
+        case lastWeek = "Week"
+        case lastMonth = "Month"
+        case last3Months = "3 Months"
+        case allTime = "All Time"
+        
+        var days: Int? {
+            switch self {
+            case .lastWeek: return 7
+            case .lastMonth: return 30
+            case .last3Months: return 90
+            case .allTime: return nil
+            }
+        }
+    }
     
     // Fetch completions for this habit
     @FetchRequest private var completions: FetchedResults<HabitCompletion>
@@ -33,14 +51,31 @@ struct HabitDetailView: View {
     private var completionData: [DailyCompletion] {
         let calendar = Calendar.current
         let today = Date()
-        guard let thirtyDaysAgo = calendar.date(byAdding: .day, value: -29, to: today) else {
-            return []
+        
+        let startDate: Date
+        if let days = selectedTimePeriod.days {
+            guard let calculatedStartDate = calendar.date(byAdding: .day, value: -(days - 1), to: today) else {
+                return []
+            }
+            startDate = calculatedStartDate
+        } else {
+            // All time - use creation date or first completion date
+            startDate = habit.createdDate ?? completions.last?.completedDate ?? today
         }
         
         var dailyData: [Date: Int] = [:]
         
+        // Calculate the number of days to show
+        let numberOfDays: Int
+        if let days = selectedTimePeriod.days {
+            numberOfDays = days
+        } else {
+            // For "All Time", calculate days from start date to today
+            numberOfDays = calendar.dateComponents([.day], from: startDate, to: today).day ?? 0
+        }
+        
         // Initialize all days with 0
-        for i in 0..<30 {
+        for i in 0..<numberOfDays {
             if let date = calendar.date(byAdding: .day, value: -i, to: today) {
                 let dayStart = calendar.startOfDay(for: date)
                 dailyData[dayStart] = 0
@@ -50,7 +85,7 @@ struct HabitDetailView: View {
         // Count completions per day - safely handle nil dates
         for completion in completions {
             guard let completedDate = completion.completedDate,
-                  completedDate >= thirtyDaysAgo else { continue }
+                  completedDate >= startDate else { continue }
             
             let dayStart = calendar.startOfDay(for: completedDate)
             dailyData[dayStart, default: 0] += 1
@@ -110,23 +145,19 @@ struct HabitDetailView: View {
                 // Statistics cards
                 statisticsCardsView
                 
+                // Calendar view
+                calendarView
+                
                 // Progress chart
                 if #available(iOS 16.0, *) {
                     progressChartView
                 }
-                
-                // Recent completions
-                recentCompletionsView
-                
-                // Streak history
-                if !streakData.isEmpty {
-                    streakHistoryView
-                }
+            
             }
             .padding()
         }
-        .navigationTitle(habit.name ?? "Habit Details")
-        .navigationBarTitleDisplayMode(.large)
+        // .navigationTitle(habit.name ?? "Habit Details")
+        // .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
@@ -178,24 +209,7 @@ struct HabitDetailView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                HStack {
-                    Text("Target: \(habit.targetFrequency) time\(habit.targetFrequency == 1 ? "" : "s") per day")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Spacer()
-                    
-                    if habit.currentStreak > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "flame.fill")
-                                .foregroundColor(.orange)
-                            Text("\(habit.currentStreak) day streak")
-                                .fontWeight(.semibold)
-                        }
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                    }
-                }
+               
             }
             
             Spacer()
@@ -208,30 +222,93 @@ struct HabitDetailView: View {
     private var statisticsCardsView: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
             StatCard(title: "Total Completions", value: "\(habit.totalCompletions)", color: Color(hex: habit.colorHex ?? "#007AFF"))
-            StatCard(title: "Current Streak", value: "\(habit.currentStreak) days", color: .orange)
-            StatCard(title: "Longest Streak", value: "\(habit.longestStreak) days", color: .green)
-            StatCard(title: "This Week", value: "\(completionsThisWeek)", color: .purple)
+            StatCard(title: "Current Streak", value: "\(habit.currentStreak) days", color: Color(hex: habit.colorHex ?? "#007AFF"))
+            StatCard(title: "Longest Streak", value: "\(habit.longestStreak) days", color: Color(hex: habit.colorHex ?? "#007AFF"))
+            StatCard(title: "This Week", value: "\(completionsThisWeek)", color: Color(hex: habit.colorHex ?? "#007AFF"))
         }
+    }
+    
+    private var calendarView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Month navigation header
+            HStack {
+                Button(action: { changeMonth(-1) }) {
+                    Image(systemName: "chevron.left")
+                        .font(.title2)
+                        .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+                }
+                
+                Spacer()
+                
+                Text(monthYearFormatter.string(from: currentMonth))
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Button(action: { changeMonth(1) }) {
+                    Image(systemName: "chevron.right")
+                        .font(.title2)
+                        .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+                }
+            }
+            .padding(.horizontal)
+            
+            // Calendar grid
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
+                // Day headers
+                ForEach(dayHeaders, id: \.self) { day in
+                    Text(day)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .frame(height: 30)
+                }
+                
+                // Calendar days
+                ForEach(calendarDays, id: \.date) { calendarDay in
+                    CalendarDayView(
+                        day: calendarDay,
+                        habitColor: Color(hex: habit.colorHex ?? "#007AFF")
+                    )
+                }
+            }
+            .padding(.horizontal)
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
     @available(iOS 16.0, *)
     private var progressChartView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Last 30 Days")
-                .font(.headline)
+            HStack {
+                Text("Progress Chart")
+                    .font(.headline)
+                Spacer()
+            }
+            
+            // Time period selector
+            Picker("Time Period", selection: $selectedTimePeriod) {
+                ForEach(TimePeriod.allCases, id: \.self) { period in
+                    Text(period.rawValue).tag(period)
+                }
+            }
+            .pickerStyle(SegmentedPickerStyle())
             
             Chart(completionData) { item in
                 BarMark(
                     x: .value("Date", item.date),
-                    y: .value("Completions", item.count)
+                    y: .value("Completions", Double(item.count) * (habit.metricValue))
                 )
                 .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF"))
                 .opacity(item.count > 0 ? 1.0 : 0.3)
             }
             .frame(height: 200)
             .chartXAxis {
-                AxisMarks(values: .stride(by: .day, count: 7)) { _ in
-                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                AxisMarks(values: getXAxisValues()) { value in
+                    AxisValueLabel(format: getXAxisFormat())
                     AxisGridLine()
                 }
             }
@@ -241,73 +318,71 @@ struct HabitDetailView: View {
                     AxisGridLine()
                 }
             }
+            .chartYAxisLabel(habit.metricUnit ?? "completions", position: .leading)
         }
         .padding()
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    private var recentCompletionsView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent Completions")
-                .font(.headline)
+    @available(iOS 16.0, *)
+    private func getXAxisValues() -> [Date] {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // Get the total days for the selected period
+        let totalDays: Int
+        let startDate: Date
+        
+        switch selectedTimePeriod {
+        case .lastWeek:
+            totalDays = 7
+            startDate = calendar.date(byAdding: .day, value: -6, to: today) ?? today
             
-            if completions.isEmpty {
-                Text("No completions yet")
-                    .foregroundColor(.secondary)
-                    .padding()
-            } else {
-                ForEach(Array(completions.prefix(10)), id: \.id) { completion in
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
-                        
-                        Text(completion.completedDate ?? Date(), formatter: dateFormatter)
-                            .font(.body)
-                        
-                        Spacer()
-                        
-                        Text(completion.completedDate ?? Date(), formatter: timeFormatter)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
+        case .lastMonth:
+            totalDays = 30
+            startDate = calendar.date(byAdding: .day, value: -29, to: today) ?? today
+            
+        case .last3Months:
+            totalDays = 90
+            startDate = calendar.date(byAdding: .day, value: -89, to: today) ?? today
+            
+        case .allTime:
+            let habitStartDate = habit.createdDate ?? completions.last?.completedDate ?? today
+            totalDays = calendar.dateComponents([.day], from: habitStartDate, to: today).day ?? 0
+            startDate = habitStartDate
+        }
+        
+        // Handle edge case for very short periods
+        if totalDays <= 4 {
+            var dates: [Date] = []
+            for i in 0...totalDays {
+                if let date = calendar.date(byAdding: .day, value: i, to: startDate) {
+                    dates.append(date)
                 }
             }
+            return dates
+        } else {
+            // Show 4 equally spaced dates
+            var dates: [Date] = []
+            let interval = totalDays / 3
+            for i in 0..<4 {
+                if let date = calendar.date(byAdding: .day, value: (i * interval), to: startDate) {
+                    dates.append(date)
+                }
+            }
+            return dates
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    private var streakHistoryView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Streak History")
-                .font(.headline)
-            
-            ForEach(streakData.prefix(5), id: \.startDate) { streak in
-                HStack {
-                    Image(systemName: "flame.fill")
-                        .foregroundColor(.orange)
-                    
-                    VStack(alignment: .leading) {
-                        Text("\(streak.length) day streak")
-                            .font(.body)
-                            .fontWeight(.semibold)
-                        
-                        Text("\(streak.startDate, formatter: dateFormatter) - \(streak.endDate, formatter: dateFormatter)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.vertical, 4)
-            }
+    @available(iOS 16.0, *)
+    private func getXAxisFormat() -> Date.FormatStyle {
+        switch selectedTimePeriod {
+        case .lastWeek:
+            return .dateTime.weekday(.abbreviated) // Mon, Wed, Thu, Sat
+        case .lastMonth, .last3Months, .allTime:
+            return .dateTime.month(.abbreviated).day() // Jan 15
         }
-        .padding()
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
     private var completionsThisWeek: Int {
@@ -319,6 +394,76 @@ struct HabitDetailView: View {
             guard let date = completion.completedDate else { return false }
             return date >= weekStart
         }.count
+    }
+    
+    private var dayHeaders: [String] {
+        let formatter = DateFormatter()
+        return formatter.shortWeekdaySymbols
+    }
+    
+    private var calendarDays: [CalendarDay] {
+        let calendar = Calendar.current
+        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else {
+            return []
+        }
+        
+        let firstOfMonth = monthInterval.start
+        let lastOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end) ?? monthInterval.end
+        
+        // Get the first day of the week for the first day of the month
+        let firstWeekday = calendar.component(.weekday, from: firstOfMonth)
+        let startOffset = firstWeekday - 1 // Sunday = 1, so offset by 1 less
+        
+        var days: [CalendarDay] = []
+        
+        // Add empty days for the beginning of the month
+        if startOffset > 0 {
+            for i in 0..<startOffset {
+                if let date = calendar.date(byAdding: .day, value: -startOffset + i, to: firstOfMonth) {
+                    days.append(CalendarDay(date: date, isInCurrentMonth: false, completionCount: 0))
+                }
+            }
+        }
+        
+        // Add days of the current month
+        let daysInMonth = calendar.dateComponents([.day], from: firstOfMonth, to: lastOfMonth).day ?? 0
+        for dayOffset in 0...daysInMonth {
+            if let date = calendar.date(byAdding: .day, value: dayOffset, to: firstOfMonth) {
+                let completionCount = getCompletionCount(for: date)
+                days.append(CalendarDay(date: date, isInCurrentMonth: true, completionCount: completionCount))
+            }
+        }
+        
+        // Add empty days to fill the last week
+        let totalCells = 42 // 6 rows × 7 days
+        while days.count < totalCells {
+            if let lastDate = days.last?.date,
+               let nextDate = calendar.date(byAdding: .day, value: 1, to: lastDate) {
+                days.append(CalendarDay(date: nextDate, isInCurrentMonth: false, completionCount: 0))
+            } else {
+                break
+            }
+        }
+        
+        return Array(days.prefix(totalCells))
+    }
+    
+    private func getCompletionCount(for date: Date) -> Int {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        
+        return completions.filter { completion in
+            guard let completedDate = completion.completedDate else { return false }
+            return completedDate >= dayStart && completedDate < dayEnd
+        }.count
+    }
+    
+    private func changeMonth(_ direction: Int) {
+        let calendar = Calendar.current
+        if let newMonth = calendar.date(byAdding: .month, value: direction, to: currentMonth) {
+            currentMonth = newMonth
+        }
     }
     
     private func deleteHabit() {
@@ -372,6 +517,37 @@ struct StreakPeriod {
     var length: Int
 }
 
+struct CalendarDay: Identifiable {
+    let id = UUID()
+    let date: Date
+    let isInCurrentMonth: Bool
+    let completionCount: Int
+}
+
+struct CalendarDayView: View {
+    let day: CalendarDay
+    let habitColor: Color
+    
+    var body: some View {
+        VStack {
+            Text("\(Calendar.current.component(.day, from: day.date))")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(day.isInCurrentMonth ? .primary : .secondary)
+        }
+        .frame(width: 32, height: 32)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(day.completionCount > 0 ? habitColor : Color.clear)
+                .opacity(day.completionCount > 0 ? (day.isInCurrentMonth ? 1.0 : 0.3) : 0.0)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(habitColor.opacity(0.3), lineWidth: day.isInCurrentMonth ? 1 : 0)
+        )
+        .opacity(day.isInCurrentMonth ? 1.0 : 0.5)
+    }
+}
+
 private let dateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateStyle = .medium
@@ -381,6 +557,12 @@ private let dateFormatter: DateFormatter = {
 private let timeFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.timeStyle = .short
+    return formatter
+}()
+
+private let monthYearFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "MMMM yyyy"
     return formatter
 }()
 

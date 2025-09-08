@@ -17,7 +17,7 @@ struct PersistenceController {
         
         // Create sample habits for preview
         let sampleHabits = [
-            ("Drink Water", "Stay hydrated throughout the day", "drop.fill", "#007AFF", 8, ScheduleType.daily, "Have a glass of water if you missed your goal"),
+            ("Drink Water", "Stay hydrated throughout the day", "drop.fill", "#007AFF", 3, ScheduleType.daily, "Have a glass of water if you missed your goal"),
             ("Exercise", "Get moving for at least 30 minutes", "figure.run", "#FF3B30", 1, ScheduleType.weekdaysOnly, "Do 10 push-ups or take a 5-minute walk"),
             ("Read", "Read for personal growth", "book.fill", "#34C759", 1, ScheduleType.weekly, "Read just one page or listen to a podcast"),
             ("Meditate", "Practice mindfulness", "leaf.fill", "#AF52DE", 1, ScheduleType.weekendsOnly, "Take 3 deep breaths mindfully")

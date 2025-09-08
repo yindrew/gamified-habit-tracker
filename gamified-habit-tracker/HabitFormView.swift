@@ -27,6 +27,12 @@ struct HabitFormView: View {
     @State private var selectedIcon: String = "star"
     @State private var targetFrequency: Int = 1
     @State private var showingIconPicker = false
+    @State private var showingColorPicker = false
+    
+    // Metrics
+    @State private var metricValue: Double = 1.0
+    @State private var metricUnit: String = "times"
+    @State private var goalValue: Double = 1.0
     
     // Scheduling
     @State private var selectedSchedule: ScheduleType = .daily
@@ -36,8 +42,8 @@ struct HabitFormView: View {
     // Coping Plan
     @State private var copingPlan: String = ""
     
-    let availableIcons = ["star", "heart", "bolt", "leaf", "flame", "drop", "moon", "sun.max", "figure.run", "book", "music.note", "paintbrush", "camera", "gamecontroller"]
-    let availableColors: [Color] = [.blue, .green, .orange, .red, .purple, .pink, .yellow, .indigo, .mint, .cyan]
+    let availableIcons = ["star", "heart", "bolt", "leaf", "flame", "drop", "moon", "sun.max", "figure.run", "book", "music.note", "paintbrush", "camera", "gamecontroller", "dumbbell", "bicycle", "car", "airplane", "house", "briefcase", "graduationcap", "stethoscope", "wrench", "hammer", "scissors", "pencil", "cup.and.saucer", "fork.knife"]
+    let availableColors: [Color] = [.blue, .green, .orange, .red, .purple, .pink, .yellow, .indigo, .mint, .cyan, .gray, .black, .white, .brown, .teal]
     
     init(mode: Mode) {
         self.mode = mode
@@ -53,6 +59,11 @@ struct HabitFormView: View {
             self._selectedColor = State(initialValue: Color(hex: habit.colorHex ?? "#007AFF"))
             self._selectedIcon = State(initialValue: habit.icon ?? "star")
             self._targetFrequency = State(initialValue: Int(habit.targetFrequency))
+            
+            // Initialize metrics
+            self._metricValue = State(initialValue: habit.metricValue)
+            self._metricUnit = State(initialValue: habit.metricUnit ?? "times")
+            self._goalValue = State(initialValue: habit.goalValue)
             
             // Initialize scheduling
             self._selectedSchedule = State(initialValue: habit.schedule)
@@ -153,11 +164,27 @@ struct HabitFormView: View {
                 .padding(.vertical, 5)
             }
             
-            VStack(alignment: .leading, spacing: 10) {
+            HStack {
                 Text("Color")
+                Spacer()
+                Button(action: { showingColorPicker.toggle() }) {
+                    Circle()
+                        .fill(selectedColor)
+                        .frame(width: 30, height: 30)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+                        )
+                }
+            }
+            
+            if showingColorPicker {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 10) {
                     ForEach(availableColors, id: \.self) { color in
-                        Button(action: { selectedColor = color }) {
+                        Button(action: {
+                            selectedColor = color
+                            showingColorPicker = false
+                        }) {
                             Circle()
                                 .fill(color)
                                 .frame(width: 30, height: 30)
@@ -169,6 +196,7 @@ struct HabitFormView: View {
                         .buttonStyle(PlainButtonStyle())
                     }
                 }
+                .padding(.vertical, 5)
             }
         }
     }
@@ -185,12 +213,12 @@ struct HabitFormView: View {
                 }
             }
             .pickerStyle(MenuPickerStyle())
-            .onChange(of: selectedSchedule) { newSchedule in
+            .onChange(of: selectedSchedule) { oldValue, newValue in
                 // Clear schedule selections when switching types
-                if newSchedule != .weekly {
+                if newValue != .weekly {
                     selectedWeekdays.removeAll()
                 }
-                if newSchedule != .monthly {
+                if newValue != .monthly {
                     selectedMonthDays.removeAll()
                 }
             }
@@ -263,7 +291,7 @@ struct HabitFormView: View {
     }
     
     private var copingPlanSection: some View {
-        Section(header: Text("Coping Plan"), footer: Text("A simpler alternative you can do if you miss your scheduled habit. Completing it the next day maintains your streak.")) {
+        Section(header: Text("Coping Plan"), footer: Text("A simpler alternative you can do if you miss your scheduled habit. Completing it the next day maintains your streak for streak over 7 days.")) {
             TextField("e.g., Do 5 push-ups instead of full workout", text: $copingPlan, axis: .vertical)
                 .lineLimit(2...4)
                 .textInputAutocapitalization(.sentences)
@@ -271,11 +299,48 @@ struct HabitFormView: View {
     }
     
     private var goalSection: some View {
-        Section(header: Text("Goal")) {
-            if selectedSchedule == .daily {
-                Stepper("Complete \(targetFrequency) time\(targetFrequency == 1 ? "" : "s") per day", value: $targetFrequency, in: 1...10)
-            } else {
-                Stepper("Complete \(targetFrequency) time\(targetFrequency == 1 ? "" : "s") on scheduled days", value: $targetFrequency, in: 1...10)
+        Section(header: Text("Goal & Metrics")) {
+            // Metric Unit
+            HStack {
+                Text("Unit")
+                Spacer()
+                TextField("times", text: $metricUnit)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: 100)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            
+            // Metric Value (per completion)
+            HStack {
+                Text("Value per completion")
+                Spacer()
+                TextField("1.0", value: $metricValue, format: .number)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: 80)
+                    .keyboardType(.decimalPad)
+                Text(metricUnit)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Goal Value (total target)
+            HStack {
+                Text("Daily goal")
+                Spacer()
+                TextField("1.0", value: $goalValue, format: .number)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(width: 80)
+                    .keyboardType(.decimalPad)
+                Text(metricUnit)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Calculated completions needed
+            if metricValue > 0 {
+                let completionsNeeded = Int(ceil(goalValue / metricValue))
+                Text("Requires \(completionsNeeded) completion\(completionsNeeded == 1 ? "" : "s") \(selectedSchedule == .daily ? "per day" : "on scheduled days")")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -301,13 +366,18 @@ struct HabitFormView: View {
         newHabit.habitDescription = trimmedDescription.isEmpty ? nil : trimmedDescription
         newHabit.icon = selectedIcon
         newHabit.colorHex = selectedColor.toHex()
-        newHabit.targetFrequency = Int32(targetFrequency)
+        newHabit.targetFrequency = Int32(ceil(goalValue / metricValue))
         newHabit.currentStreak = 0
         newHabit.longestStreak = 0
         newHabit.totalCompletions = 0
         newHabit.createdDate = Date()
         newHabit.lastCompletedDate = nil
         newHabit.isActive = true
+        
+        // Set metrics
+        newHabit.metricValue = metricValue
+        newHabit.metricUnit = metricUnit
+        newHabit.goalValue = goalValue
         
         // Set scheduling
         newHabit.schedule = selectedSchedule
@@ -326,7 +396,12 @@ struct HabitFormView: View {
         habit.habitDescription = trimmedDescription.isEmpty ? nil : trimmedDescription
         habit.icon = selectedIcon
         habit.colorHex = selectedColor.toHex()
-        habit.targetFrequency = Int32(targetFrequency)
+        habit.targetFrequency = Int32(ceil(goalValue / metricValue))
+        
+        // Set metrics
+        habit.metricValue = metricValue
+        habit.metricUnit = metricUnit
+        habit.goalValue = goalValue
         
         // Set scheduling
         habit.schedule = selectedSchedule

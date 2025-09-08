@@ -65,17 +65,26 @@ struct ContentView: View {
         let today = calendar.startOfDay(for: Date())
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
         
-        return scheduledHabitsForToday.filter { habit in
+        return habits.filter { habit in
             let completions = habit.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
-            let target = habit.isScheduledToday ? habit.targetFrequency : 0
-            return completions >= target && target > 0
+            return completions > 0
+        }
+    }
+    
+    private var scheduledHabitsCompletedToday: [Habit] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        
+        return scheduledHabitsForToday.filter { habit in
+            return habit.goalMetToday
         }
     }
     
     private var allHabitsCompletedToday: Bool {
         let scheduledCount = scheduledHabitsForToday.count
-        let completedCount = completedHabitsForToday.count
-        return scheduledCount > 0 && scheduledCount == completedCount
+        let completedScheduledCount = scheduledHabitsCompletedToday.count
+        return scheduledCount > 0 && scheduledCount == completedScheduledCount
     }
 
     var body: some View {
@@ -102,7 +111,12 @@ struct ContentView: View {
                 } else {
                     List {
                         ForEach(sortedHabits, id: \.self) { habit in
-                            NavigationLink(destination: HabitDetailView(habit: habit)) {
+                            ZStack {
+                                NavigationLink(destination: HabitDetailView(habit: habit)) {
+                                    EmptyView()
+                                }
+                                .opacity(0)
+                                
                                 HabitRowView(habit: habit)
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -113,7 +127,7 @@ struct ContentView: View {
                 // Celebration toast overlay
                 if showCelebrationToast {
                     CelebrationToastView(
-                        completedHabits: completedHabitsForToday,
+                        completedHabits: scheduledHabitsCompletedToday,
                         isPresented: $showCelebrationToast
                     )
                     .zIndex(1000)
@@ -123,7 +137,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack {
-                        Text("My Habits")
+                        Text("Habits")
                             .font(.largeTitle)
                             .fontWeight(.bold)
                         
@@ -142,7 +156,7 @@ struct ContentView: View {
             .sheet(isPresented: $showingAddHabit) {
                 HabitFormView(mode: .add)
             }
-            .onChange(of: allHabitsCompletedToday) { completed in
+            .onChange(of: allHabitsCompletedToday) { oldValue, newValue in
                 checkForCelebration()
             }
             .onAppear {
@@ -178,7 +192,6 @@ struct HabitRowView: View {
     @State private var holdProgress: Double = 0.0
     @State private var holdTimer: Timer?
     @State private var isInCooldown = false
-    @State private var showingCopingPlanAlert = false
     
     private var isCompletedToday: Bool {
         guard let lastCompleted = habit.lastCompletedDate else { return false }
@@ -194,9 +207,51 @@ struct HabitRowView: View {
     }
     
     private var progressPercentage: Double {
-        let target = habit.isScheduledToday ? habit.targetFrequency : 0
-        guard target > 0 else { return completionsToday > 0 ? 1.0 : 0.0 }
-        return min(Double(completionsToday) / Double(target), 1.0)
+        if habit.isScheduledToday {
+            return habit.progressPercentage
+        } else {
+            return completionsToday > 0 ? 1.0 : 0.0
+        }
+    }
+    
+    private var isCompletedForDisplay: Bool {
+        if habit.isScheduledToday {
+            // If scheduled today, check if goal is met
+            return habit.goalMetToday
+        } else {
+            // If not scheduled today, only show as completed if actually attempted
+            return completionsToday > 0
+        }
+    }
+    
+    private var buttonIcon: String {
+        if habit.canUseCopingPlanToday {
+            return "heart.fill"
+        } else if isCompletedForDisplay {
+            return "checkmark"
+        } else {
+            return "plus"
+        }
+    }
+    
+    private var buttonBackgroundColor: Color {
+        if habit.canUseCopingPlanToday {
+            return Color.pink.opacity(isHolding ? 0.3 : 0.1)
+        } else if isCompletedForDisplay {
+            return Color(hex: habit.colorHex ?? "#007AFF")
+        } else {
+            return Color(hex: habit.colorHex ?? "#007AFF").opacity(isHolding ? 0.3 : 0.1)
+        }
+    }
+    
+    private var buttonIconColor: Color {
+        if habit.canUseCopingPlanToday {
+            return .pink
+        } else if isCompletedForDisplay {
+            return .white
+        } else {
+            return Color(hex: habit.colorHex ?? "#007AFF")
+        }
     }
     
     var body: some View {
@@ -255,32 +310,15 @@ struct HabitRowView: View {
                         .progressViewStyle(LinearProgressViewStyle(tint: Color(hex: habit.colorHex ?? "#007AFF")))
                         .frame(height: 4)
                     
-                    Text("\(completionsToday)/\(habit.isScheduledToday ? habit.targetFrequency : 0)")
+                    Text(habit.isScheduledToday ? habit.currentProgressString : "\(completionsToday) \(habit.metricUnit ?? "times")")
                         .font(.caption2)
-                        .foregroundColor(completionsToday >= (habit.isScheduledToday ? habit.targetFrequency : 0) ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
-                        .fontWeight(completionsToday >= (habit.isScheduledToday ? habit.targetFrequency : 0) ? .bold : .medium)
+                        .foregroundColor(isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
+                        .fontWeight(isCompletedForDisplay ? .bold : .medium)
                 }
             }
             
             // Action buttons
             HStack(spacing: 8) {
-                // Coping plan button (if available)
-                if habit.canUseCopingPlanToday {
-                    Button(action: {
-                        showingCopingPlanAlert = true
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.pink.opacity(0.1))
-                                .frame(width: 30, height: 30)
-                            
-                            Image(systemName: "heart.fill")
-                                .font(.caption)
-                                .foregroundColor(.pink)
-                        }
-                    }
-                }
-                
                 // Complete button with press-and-hold ring animation (only if scheduled today or daily)
                 ZStack {
                     // Background ring that fills up during hold
@@ -301,7 +339,7 @@ struct HabitRowView: View {
                     
                     // Main button
                     Circle()
-                        .fill(completionsToday >= (habit.isScheduledToday ? habit.targetFrequency : 0) ? Color(hex: habit.colorHex ?? "#007AFF") : Color(hex: habit.colorHex ?? "#007AFF").opacity(isHolding ? 0.3 : 0.1))
+                        .fill(buttonBackgroundColor)
                         .frame(width: 30, height: 30)
                         .scaleEffect(isHolding ? 0.95 : (showingCompletionAnimation ? 1.2 : 1.0))
                         .opacity(isInCooldown ? 0.5 : 1.0)
@@ -309,10 +347,10 @@ struct HabitRowView: View {
                         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showingCompletionAnimation)
                         .animation(.easeInOut(duration: 0.2), value: isInCooldown)
                     
-                    Image(systemName: completionsToday >= (habit.isScheduledToday ? habit.targetFrequency : 0) ? "checkmark" : "plus")
+                    Image(systemName: buttonIcon)
                         .font(.caption)
                         .fontWeight(.bold)
-                        .foregroundColor(completionsToday >= (habit.isScheduledToday ? habit.targetFrequency : 0) ? .white : Color(hex: habit.colorHex ?? "#007AFF"))
+                        .foregroundColor(buttonIconColor)
                         .scaleEffect(isHolding ? 0.9 : 1.0)
                         .opacity(isInCooldown ? 0.5 : 1.0)
                         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHolding)
@@ -333,14 +371,6 @@ struct HabitRowView: View {
             }
         }
         .padding(.vertical, 4)
-        .alert("Use Coping Plan", isPresented: $showingCopingPlanAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Complete Coping Plan") {
-                completeCopingPlan()
-            }
-        } message: {
-            Text((habit.copingPlan?.isEmpty == false) ? habit.copingPlan! : "Complete your alternative plan to maintain your streak.")
-        }
     }
     
     private func startHolding() {
@@ -398,12 +428,18 @@ struct HabitRowView: View {
         }
         
         // End cooldown after 0.2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             isInCooldown = false
         }
     }
     
     private func completeHabit() {
+        // Check if this is a coping plan completion
+        if habit.canUseCopingPlanToday {
+            completeCopingPlan()
+            return
+        }
+        
         // Strong haptic feedback on completion
         let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
         impactFeedback.impactOccurred()
@@ -440,15 +476,15 @@ struct HabitRowView: View {
     }
     
     private func completeCopingPlan() {
+        // Medium haptic feedback for coping plan
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
         withAnimation(.spring()) {
             showingCompletionAnimation = true
             
             // Complete the coping plan
             habit.completeCopingPlan()
-            
-            // Light haptic feedback for coping plan
-            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-            impactFeedback.impactOccurred()
             
             do {
                 try viewContext.save()
@@ -460,6 +496,7 @@ struct HabitRowView: View {
             // Reset animation after delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 showingCompletionAnimation = false
+                holdProgress = 0.0
             }
         }
     }
