@@ -42,6 +42,36 @@ struct HabitFormView: View {
     // Coping Plan
     @State private var copingPlan: String = ""
     
+    // Habit Type
+    @State private var habitType: HabitType = .frequency
+    @State private var routineSteps: [String] = [""]
+    
+    enum HabitType: String, CaseIterable {
+        case frequency = "frequency"
+        case routine = "routine"
+        
+        var displayName: String {
+            switch self {
+            case .frequency: return "Frequency"
+            case .routine: return "Routine"
+            }
+        }
+        
+        var description: String {
+            switch self {
+            case .frequency: return "Track how many times you do an action"
+            case .routine: return "Complete a sequence of steps in order"
+            }
+        }
+        
+        var icon: String {
+            switch self {
+            case .frequency: return "number"
+            case .routine: return "checklist"
+            }
+        }
+    }
+    
     let availableIcons = ["star", "heart", "bolt", "leaf", "flame", "drop", "moon", "sun.max", "figure.run", "book", "music.note", "paintbrush", "camera", "gamecontroller", "dumbbell", "bicycle", "car", "airplane", "house", "briefcase", "graduationcap", "stethoscope", "wrench", "hammer", "scissors", "pencil", "cup.and.saucer", "fork.knife"]
     let availableColors: [Color] = [.blue, .green, .orange, .red, .purple, .pink, .yellow, .indigo, .mint, .cyan, .gray, .black, .white, .brown, .teal]
     
@@ -72,6 +102,17 @@ struct HabitFormView: View {
             
             // Initialize coping plan
             self._copingPlan = State(initialValue: habit.copingPlan ?? "")
+            
+            // Initialize habit type and routine steps
+            let existingHabitType = HabitType(rawValue: habit.habitType ?? "frequency") ?? .frequency
+            self._habitType = State(initialValue: existingHabitType)
+            
+            if existingHabitType == .routine, let routineStepsString = habit.routineSteps {
+                let steps = routineStepsString.components(separatedBy: "|||").filter { !$0.isEmpty }
+                self._routineSteps = State(initialValue: steps.isEmpty ? [""] : steps)
+            } else {
+                self._routineSteps = State(initialValue: [""])
+            }
         }
     }
     
@@ -300,6 +341,55 @@ struct HabitFormView: View {
     
     private var goalSection: some View {
         Section(header: Text("Goal & Metrics")) {
+            // Habit Type Selection
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Habit Type")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                HStack(spacing: 12) {
+                    ForEach(HabitType.allCases, id: \.self) { type in
+                        Button(action: {
+                            habitType = type
+                            if type == .routine && routineSteps.isEmpty {
+                                routineSteps = [""]
+                            }
+                        }) {
+                            VStack(spacing: 8) {
+                                Image(systemName: type.icon)
+                                    .font(.title2)
+                                    .foregroundColor(habitType == type ? .white : selectedColor)
+                                
+                                Text(type.displayName)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(habitType == type ? .white : .primary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(habitType == type ? selectedColor : selectedColor.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                
+                Text(habitType.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Show appropriate content based on habit type
+            if habitType == .frequency {
+                frequencyContent
+            } else {
+                routineContent
+            }
+        }
+    }
+    
+    private var frequencyContent: some View {
+        Group {
             // Metric Unit
             HStack {
                 Text("Unit")
@@ -345,6 +435,74 @@ struct HabitFormView: View {
         }
     }
     
+    private var routineContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Routine Steps")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        addStep()
+                    }
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundColor(selectedColor)
+                        .font(.title3)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            ForEach(routineSteps.indices, id: \.self) { index in
+                HStack(spacing: 12) {
+                    Text("\(index + 1).")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                        .frame(width: 20, alignment: .trailing)
+                    
+                    TextField("Enter step", text: $routineSteps[index])
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .textInputAutocapitalization(.sentences)
+                    
+                    if routineSteps.count > 1 {
+                        Button(action: { 
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                removeStep(at: index) 
+                            }
+                        }) {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.title3)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+            }
+            
+            if !routineSteps.isEmpty {
+                Text("Complete all steps to mark the routine as done")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+    
+    // MARK: - Routine Step Management
+    
+    private func addStep() {
+        routineSteps.append("")
+    }
+    
+    private func removeStep(at index: Int) {
+        if routineSteps.count > 1 {
+            routineSteps.remove(at: index)
+        }
+    }
+    
     // MARK: - Actions
     
     private func saveHabit() {
@@ -387,6 +545,16 @@ struct HabitFormView: View {
         let trimmedCopingPlan = copingPlan.trimmingCharacters(in: .whitespacesAndNewlines)
         newHabit.copingPlan = trimmedCopingPlan.isEmpty ? nil : trimmedCopingPlan
         
+        // Set habit type and routine steps
+        newHabit.habitType = habitType.rawValue
+        if habitType == .routine {
+            let validSteps = routineSteps.compactMap { step in
+                let trimmed = step.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            newHabit.routineSteps = validSteps.isEmpty ? nil : validSteps.joined(separator: "|||")
+        }
+        
         saveContext()
     }
     
@@ -410,6 +578,18 @@ struct HabitFormView: View {
         // Set coping plan
         let trimmedCopingPlan = copingPlan.trimmingCharacters(in: .whitespacesAndNewlines)
         habit.copingPlan = trimmedCopingPlan.isEmpty ? nil : trimmedCopingPlan
+        
+        // Set habit type and routine steps
+        habit.habitType = habitType.rawValue
+        if habitType == .routine {
+            let validSteps = routineSteps.compactMap { step in
+                let trimmed = step.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            habit.routineSteps = validSteps.isEmpty ? nil : validSteps.joined(separator: "|||")
+        } else {
+            habit.routineSteps = nil
+        }
         
         saveContext()
     }
