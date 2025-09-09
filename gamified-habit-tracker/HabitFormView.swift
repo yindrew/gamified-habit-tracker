@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import UIKit
 
 struct HabitFormView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -46,14 +47,22 @@ struct HabitFormView: View {
     @State private var habitType: HabitType = .frequency
     @State private var routineSteps: [String] = [""]
     
+    // Timer
+    @State private var timerHours: Int = 0
+    @State private var timerMinutes: Int = 30
+    @State private var timerSeconds: Int = 0
+    @State private var timerDurationSeconds: TimeInterval = 30 * 60
+    
     enum HabitType: String, CaseIterable {
         case frequency = "frequency"
         case routine = "routine"
+        case timer = "timer"
         
         var displayName: String {
             switch self {
             case .frequency: return "Frequency"
             case .routine: return "Routine"
+            case .timer: return "Timer"
             }
         }
         
@@ -61,6 +70,7 @@ struct HabitFormView: View {
             switch self {
             case .frequency: return "Track how many times you do an action"
             case .routine: return "Complete a sequence of steps in order"
+            case .timer: return "Track time spent on an activity"
             }
         }
         
@@ -68,6 +78,7 @@ struct HabitFormView: View {
             switch self {
             case .frequency: return "number"
             case .routine: return "checklist"
+            case .timer: return "timer"
             }
         }
     }
@@ -113,6 +124,23 @@ struct HabitFormView: View {
             } else {
                 self._routineSteps = State(initialValue: [""])
             }
+            
+            // Initialize timer duration (stored in goalValue as minutes; expose H/M/S)
+            if existingHabitType == .timer {
+                let totalSeconds = Int((habit.goalValue * 60.0).rounded())
+                let h = totalSeconds / 3600
+                let m = (totalSeconds % 3600) / 60
+                let s = totalSeconds % 60
+                self._timerHours = State(initialValue: h)
+                self._timerMinutes = State(initialValue: m)
+                self._timerSeconds = State(initialValue: s)
+                self._timerDurationSeconds = State(initialValue: TimeInterval(totalSeconds))
+            } else {
+                self._timerHours = State(initialValue: 0)
+                self._timerMinutes = State(initialValue: 30)
+                self._timerSeconds = State(initialValue: 0)
+                self._timerDurationSeconds = State(initialValue: 30 * 60)
+            }
         }
     }
     
@@ -155,6 +183,19 @@ struct HabitFormView: View {
                 }
             }
         }
+    }
+    
+    // Helper for native picker summary
+    private var timerGoalSummary: String {
+        let totalSeconds = Int(timerDurationSeconds)
+        let h = totalSeconds / 3600
+        let m = (totalSeconds % 3600) / 60
+        let s = totalSeconds % 60
+        var parts: [String] = []
+        if h > 0 { parts.append("\(h)h") }
+        if m > 0 { parts.append("\(m)m") }
+        if s > 0 || parts.isEmpty { parts.append("\(s)s") }
+        return parts.joined(separator: " ")
     }
     
     // MARK: - Form Sections
@@ -382,8 +423,10 @@ struct HabitFormView: View {
             // Show appropriate content based on habit type
             if habitType == .frequency {
                 frequencyContent
-            } else {
+            } else if habitType == .routine {
                 routineContent
+            } else {
+                timerContent
             }
         }
     }
@@ -491,6 +534,28 @@ struct HabitFormView: View {
         }
     }
     
+    private var timerContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Daily Time Goal")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                Spacer()
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                CountdownDurationPicker(duration: $timerDurationSeconds)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Text("Track time spent on this activity. Complete your daily goal by accumulating the target duration.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+    
     // MARK: - Routine Step Management
     
     private func addStep() {
@@ -532,10 +597,16 @@ struct HabitFormView: View {
         newHabit.lastCompletedDate = nil
         newHabit.isActive = true
         
-        // Set metrics
-        newHabit.metricValue = metricValue
-        newHabit.metricUnit = metricUnit
-        newHabit.goalValue = goalValue
+        // Set metrics (different for timer habits)
+        if habitType == .timer {
+            newHabit.metricValue = 1.0
+            newHabit.metricUnit = "minutes"
+            newHabit.goalValue = timerDurationSeconds / 60.0
+        } else {
+            newHabit.metricValue = metricValue
+            newHabit.metricUnit = metricUnit
+            newHabit.goalValue = goalValue
+        }
         
         // Set scheduling
         newHabit.schedule = selectedSchedule
@@ -566,10 +637,16 @@ struct HabitFormView: View {
         habit.colorHex = selectedColor.toHex()
         habit.targetFrequency = Int32(ceil(goalValue / metricValue))
         
-        // Set metrics
-        habit.metricValue = metricValue
-        habit.metricUnit = metricUnit
-        habit.goalValue = goalValue
+        // Set metrics (different for timer habits)
+        if habitType == .timer {
+            habit.metricValue = 1.0
+            habit.metricUnit = "minutes"
+            habit.goalValue = timerDurationSeconds / 60.0
+        } else {
+            habit.metricValue = metricValue
+            habit.metricUnit = metricUnit
+            habit.goalValue = goalValue
+        }
         
         // Set scheduling
         habit.schedule = selectedSchedule
@@ -617,6 +694,38 @@ struct HabitFormView: View {
 }
 
 // MARK: - Color Extensions
+
+// Native iOS countdown timer picker (UIDatePicker in .countDownTimer mode)
+struct CountdownDurationPicker: UIViewRepresentable {
+    @Binding var duration: TimeInterval
+
+    func makeUIView(context: Context) -> UIDatePicker {
+        let picker = UIDatePicker()
+        picker.datePickerMode = .countDownTimer
+        picker.preferredDatePickerStyle = .wheels
+        picker.countDownDuration = max(0, min(duration, 24 * 60 * 60))
+        picker.addTarget(context.coordinator, action: #selector(Coordinator.valueChanged(_:)), for: .valueChanged)
+        return picker
+    }
+
+    func updateUIView(_ uiView: UIDatePicker, context: Context) {
+        // Keep UI in sync if external changes occur
+        if abs(uiView.countDownDuration - duration) > 0.5 {
+            uiView.countDownDuration = max(0, min(duration, 24 * 60 * 60))
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    class Coordinator: NSObject {
+        var parent: CountdownDurationPicker
+        init(_ parent: CountdownDurationPicker) { self.parent = parent }
+
+        @objc func valueChanged(_ sender: UIDatePicker) {
+            parent.duration = sender.countDownDuration
+        }
+    }
+}
 
 extension Color {
     func toHex() -> String {
