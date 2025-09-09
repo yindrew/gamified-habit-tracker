@@ -100,8 +100,6 @@ struct ContentView: View {
     
     private var scheduledHabitsCompletedToday: [Habit] {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
         
         return scheduledHabitsForToday.filter { habit in
             return habit.goalMetToday
@@ -118,7 +116,7 @@ struct ContentView: View {
         switch colorScheme {
         case "light": return .light
         case "dark": return .dark
-        default: return .light 
+        default: return .light
         }
     }
     
@@ -134,47 +132,8 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                if habits.isEmpty {
-                    VStack(spacing: 20) {
-                        Image(systemName: "target")
-                            .font(.system(size: 60))
-                            .foregroundColor(.gray)
-                        
-                        Text("No Habits Yet")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.primary)
-                        
-                        Text("Tap the + button to create your first habit and start building better routines!")
-                            .font(.body)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
-                    .padding()
-                } else {
-                    List {
-                        ForEach(sortedHabits, id: \.self) { habit in
-                            ZStack {
-                                NavigationLink(destination: HabitDetailView(habit: habit)) {
-                                    EmptyView()
-                                }
-                                .opacity(0)
-                                
-                                HabitRowView(
-                                    habit: habit, 
-                                    colorScheme: colorScheme,
-                                    activeTimerHabit: $activeTimerHabit
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                            .listRowBackground(Color.clear)
-                        }
-                    }
-                    .listStyle(PlainListStyle())
-                }
-                
+                content()
+
                 // Celebration toast overlay
                 if showCelebrationToast {
                     CelebrationToastView(
@@ -185,89 +144,51 @@ struct ContentView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack {
-                        Text("Habits")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
-                        Spacer()
-                        
-                        // Filter toggle
-                        HStack(spacing: 4) {
-                            Button(action: {
-                                withAnimation(.spring(response: 0.3)) {
-                                    showOnlyTodaysHabits = false
-                                }
-                            }) {
-                                Text("All")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(showOnlyTodaysHabits ? .secondary : .primary)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(showOnlyTodaysHabits ? Color.clear : Color.accentColor.opacity(0.1))
-                                    )
-                            }
-                            
-                            Button(action: {
-                                withAnimation(.spring(response: 0.3)) {
-                                    showOnlyTodaysHabits = true
-                                }
-                            }) {
-                                Text("Today")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(showOnlyTodaysHabits ? .primary : .secondary)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(showOnlyTodaysHabits ? Color.accentColor.opacity(0.1) : Color.clear)
-                                    )
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.secondary.opacity(0.1))
-                        )
-                        
-                        // Theme toggle
-                        Button(action: {
-                            withAnimation(.spring(response: 0.3)) {
-                                toggleTheme()
-                            }
-                        }) {
-                            Image(systemName: themeIcon)
-                                .font(.title2)
-                                .fontWeight(.medium)
-                        }
-                        
-                        Button(action: {
-                            showingAddHabit = true
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.title2)
-                                .fontWeight(.medium)
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAddHabit) {
-                HabitFormView(mode: .add)
-            }
-            .onChange(of: allHabitsCompletedToday) { oldValue, newValue in
-                checkForCelebration()
-            }
-            .onAppear {
-                checkForCelebration()
-            }
+            .toolbar { ToolbarItem(placement: .principal) { toolbarPrincipal } }
+            .sheet(isPresented: $showingAddHabit) { HabitFormView(mode: .add) }
+            .onChange(of: allHabitsCompletedToday) { _, _ in checkForCelebration() }
+            .onAppear { checkForCelebration() }
             .preferredColorScheme(currentColorScheme)
+        }
+    }
+    
+    @ViewBuilder
+    private func content() -> some View {
+        if habits.isEmpty {
+            EmptyHabitsView()
+        } else {
+            HabitsListView(
+                sortedHabits: sortedHabits,
+                colorScheme: colorScheme,
+                activeTimerHabit: $activeTimerHabit
+            )
+        }
+    }
+    
+    private var toolbarPrincipal: some View {
+        HStack {
+            Text("Habits")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Spacer()
+
+            FilterToggleView(
+                showOnlyTodaysHabits: $showOnlyTodaysHabits
+            )
+
+            // Theme toggle
+            Button(action: { withAnimation(.spring(response: 0.3)) { toggleTheme() } }) {
+                Image(systemName: themeIcon)
+                    .font(.title2)
+                    .fontWeight(.medium)
+            }
+
+            Button(action: { showingAddHabit = true }) {
+                Image(systemName: "plus")
+                    .font(.title2)
+                    .fontWeight(.medium)
+            }
         }
     }
     
@@ -309,6 +230,95 @@ private let itemFormatter: DateFormatter = {
     formatter.timeStyle = .medium
     return formatter
 }()
+
+private struct EmptyHabitsView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "target")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+
+            Text("No Habits Yet")
+                .font(.title2)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            Text("Tap the + button to create your first habit and start building better routines!")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding()
+    }
+}
+
+private struct HabitsListView: View {
+    let sortedHabits: [Habit]
+    let colorScheme: String
+    @Binding var activeTimerHabit: Habit?
+
+    var body: some View {
+        List {
+            ForEach(sortedHabits, id: \.objectID) { (habit: Habit) in
+                ZStack {
+                    NavigationLink(destination: HabitDetailView(habit: habit)) { EmptyView() }
+                        .opacity(0)
+
+                    HabitRowView(
+                        habit: habit,
+                        colorScheme: colorScheme,
+                        activeTimerHabit: $activeTimerHabit
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowBackground(Color.clear)
+            }
+        }
+        .listStyle(PlainListStyle())
+    }
+}
+
+private struct FilterToggleView: View {
+    @Binding var showOnlyTodaysHabits: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(action: { withAnimation(.spring(response: 0.3)) { showOnlyTodaysHabits = false } }) {
+                Text("All")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(showOnlyTodaysHabits ? .secondary : .primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(showOnlyTodaysHabits ? Color.clear : Color.accentColor.opacity(0.1))
+                    )
+            }
+
+            Button(action: { withAnimation(.spring(response: 0.3)) { showOnlyTodaysHabits = true } }) {
+                Text("Today")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(showOnlyTodaysHabits ? .primary : .secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(showOnlyTodaysHabits ? Color.accentColor.opacity(0.1) : Color.clear)
+                    )
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.1))
+        )
+    }
+}
 
 #Preview {
     ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)

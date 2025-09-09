@@ -2,9 +2,8 @@
 //  HabitRowView.swift
 //  gamified-habit-tracker
 //
-//  Created by Andrew Yin on 9/9/25.
+//  Created by Andrew Yin on 9/5/25.
 //
-
 
 import SwiftUI
 import CoreData
@@ -222,7 +221,7 @@ struct HabitRowView: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 15) {
+        HStack(alignment: .center, spacing: 15) {
             // Habit Icon
             ZStack {
                 Circle()
@@ -233,7 +232,6 @@ struct HabitRowView: View {
                     .font(.title2)
                     .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
             }
-            .padding(.top, 2) // Align with title baseline
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center) {
@@ -279,110 +277,16 @@ struct HabitRowView: View {
                 }
             }
             
-            // Action button ring (show for all non-routine habits, including timers)
-            if !habit.isRoutineHabit {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 8) {
-                        // When timer is running, show an expand focus button to the LEFT of the play/pause ring
-                        if habit.isTimerHabit && isTimerRunning {
-                            ZStack {
-                                Circle()
-                                    .stroke(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.2), lineWidth: 3)
-                                    .frame(width: 36, height: 36)
-
-                                Circle()
-                                    .trim(from: 0, to: holdProgressExpand)
-                                    .stroke(
-                                        Color(hex: habit.colorHex ?? "#007AFF").opacity(0.6),
-                                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                                    )
-                                    .frame(width: 36, height: 36)
-                                    .rotationEffect(.degrees(-90))
-                                    .animation(.linear(duration: 0.1), value: holdProgressExpand)
-
-                                Circle()
-                                    .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(isHoldingExpand ? 0.3 : 0.1))
-                                    .frame(width: 30, height: 30)
-                                    .scaleEffect(isHoldingExpand ? 0.95 : 1.0)
-                                    .opacity(isInCooldownExpand ? 0.5 : 1.0)
-                                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHoldingExpand)
-                                    .animation(.easeInOut(duration: 0.2), value: isInCooldownExpand)
-
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
-                                    .scaleEffect(isHoldingExpand ? 0.9 : 1.0)
-                                    .opacity(isInCooldownExpand ? 0.5 : 1.0)
-                                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHoldingExpand)
-                                    .animation(.easeInOut(duration: 0.2), value: isInCooldownExpand)
-                            }
-                            .simultaneousGesture(
-                                DragGesture(minimumDistance: 0)
-                                    .onChanged { _ in
-                                        if !isHoldingExpand && !isInCooldownExpand {
-                                            startHoldingExpand()
-                                        }
-                                    }
-                                    .onEnded { _ in
-                                        endHoldingExpand()
-                                    }
-                            )
-                        }
-
-                        // Complete button with press-and-hold ring animation (only if scheduled today or daily)
-                        ZStack {
-                    // Background ring that fills up during hold
-                    Circle()
-                        .stroke(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.2), lineWidth: 3)
-                        .frame(width: 36, height: 36)
-                    
-                    // Progress ring
-                    Circle()
-                        .trim(from: 0, to: holdProgress)
-                        .stroke(
-                            Color(hex: habit.colorHex ?? "#007AFF").opacity(0.6),
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round)
-                        )
-                        .frame(width: 36, height: 36)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.1), value: holdProgress)
-                    
-                    // Main button
-                    Circle()
-                        .fill(buttonBackgroundColor)
-                        .frame(width: 30, height: 30)
-                        .scaleEffect(isHolding ? 0.95 : (showingCompletionAnimation ? 1.2 : 1.0))
-                        .opacity(isInCooldown ? 0.5 : 1.0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHolding)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: showingCompletionAnimation)
-                        .animation(.easeInOut(duration: 0.2), value: isInCooldown)
-                    
-                    Image(systemName: buttonIcon)
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(buttonIconColor)
-                        .scaleEffect(isHolding ? 0.9 : 1.0)
-                        .opacity(isInCooldown ? 0.5 : 1.0)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHolding)
-                        .animation(.easeInOut(duration: 0.2), value: isInCooldown)
-                }
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { _ in
-                                    if !isHolding && !isInCooldown {
-                                        startHolding()
-                                    }
-                                }
-                                .onEnded { _ in
-                                    endHolding()
-                                }
-                        )
-                    }
-                    Spacer()
-                }
-            }
+            // Action buttons (extracted component)
+            HabitActionButtons(
+                ringColor: Color(hex: habit.colorHex ?? "#007AFF"),
+                showExpand: habit.isTimerHabit && isTimerRunning,
+                mainFillColor: buttonBackgroundColor,
+                mainIcon: buttonIcon,
+                mainIconColor: buttonIconColor,
+                onMainHoldCompleted: { handleMainHoldCompleted() },
+                onExpandHoldCompleted: { showFocusMode = true }
+            )
             
             // Timer action button removed: timer now uses the main hold ring
         }
@@ -454,6 +358,33 @@ struct HabitRowView: View {
                     startCooldown()
                 }
             }
+        }
+    }
+
+    private func handleMainHoldCompleted() {
+        if habit.canUseCopingPlanToday {
+            completeCopingPlan()
+            return
+        }
+        if habit.isTimerHabit {
+            if !habit.timerGoalMetToday {
+                if isTimerRunning { pauseInlineTimer() } else { startInlineTimer() }
+            }
+            return
+        }
+        if habit.isRoutineHabit {
+            completeEarliestRoutineStep()
+            return
+        }
+        completeHabit()
+    }
+
+    private func completeEarliestRoutineStep() {
+        let steps = habit.routineStepsArray
+        guard !steps.isEmpty else { return }
+        let completed = habit.completedStepsToday
+        if let nextIndex = (0..<steps.count).first(where: { !completed.contains($0) }) {
+            toggleStep(at: nextIndex)
         }
     }
     
