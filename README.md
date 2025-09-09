@@ -43,8 +43,8 @@ different implementations for different types of habits
 routines: 1 card that can expand to a checklist [brush teeth, wash face, make bed]. Pressing and holding the + sign for the habit opens up the checklist. 
 the progress bar will be out of the number of check list items completed. 
 
-still use the progress bar except its out of the total number of items to be done. instead of just one + sign for the entire morning routine, give each one of the items their own ring except that its all scoped under the one habit. remove the not completed section.
 
+display the current date? or display the schedule for the habit when you click into it? Can extend the page to just show the entire edit page section?
 
 
 

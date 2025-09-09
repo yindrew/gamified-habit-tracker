@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var lastCelebrationDate: Date?
     @State private var showOnlyTodaysHabits = false
     @AppStorage("colorScheme") private var colorScheme: String = "light"
+    @State private var activeTimerHabit: Habit?
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Habit.createdDate, ascending: true)],
@@ -53,6 +54,8 @@ struct ContentView: View {
                 
                 if habit1.isRoutineHabit {
                     isCompleted1 = habit1.updatedGoalMetToday
+                } else if habit1.isTimerHabit {
+                    isCompleted1 = habit1.timerGoalMetToday
                 } else {
                     let completions1 = habit1.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
                     let target1 = habit1.isScheduledToday ? habit1.targetFrequency : 0
@@ -61,6 +64,8 @@ struct ContentView: View {
                 
                 if habit2.isRoutineHabit {
                     isCompleted2 = habit2.updatedGoalMetToday
+                } else if habit2.isTimerHabit {
+                    isCompleted2 = habit2.timerGoalMetToday
                 } else {
                     let completions2 = habit2.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
                     let target2 = habit2.isScheduledToday ? habit2.targetFrequency : 0
@@ -156,7 +161,11 @@ struct ContentView: View {
                                 }
                                 .opacity(0)
                                 
-                                HabitRowView(habit: habit, colorScheme: colorScheme)
+                                HabitRowView(
+                                    habit: habit, 
+                                    colorScheme: colorScheme,
+                                    activeTimerHabit: $activeTimerHabit
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
@@ -295,6 +304,7 @@ struct ContentView: View {
 struct HabitRowView: View {
     @ObservedObject var habit: Habit
     let colorScheme: String
+    @Binding var activeTimerHabit: Habit?
     @Environment(\.managedObjectContext) private var viewContext
     @State private var showingCompletionAnimation = false
     @State private var isHolding = false
@@ -302,6 +312,21 @@ struct HabitRowView: View {
     @State private var holdTimer: Timer?
     @State private var isInCooldown = false
     @State private var isRoutineExpanded = false
+    
+    // Timer states
+    @State private var timerElapsedTime: TimeInterval = 0
+    @State private var runningTimer: Timer?
+    @State private var timerStartTime: Date?
+    @State private var showFocusMode = false
+    // Expand hold states
+    @State private var isHoldingExpand = false
+    @State private var holdProgressExpand: Double = 0.0
+    @State private var holdTimerExpand: Timer?
+    @State private var isInCooldownExpand = false
+    
+    private var isTimerRunning: Bool {
+        activeTimerHabit?.id == habit.id
+    }
     
     private var isCompletedToday: Bool {
         guard let lastCompleted = habit.lastCompletedDate else { return false }
@@ -319,6 +344,10 @@ struct HabitRowView: View {
     private var progressPercentage: Double {
         if habit.isRoutineHabit {
             return habit.updatedRoutineProgressPercentage
+        } else if habit.isTimerHabit {
+            let totalMinutes = habit.timerMinutesToday + (timerElapsedTime / 60.0)
+            let goal = max(habit.goalValue, 0.000001)
+            return min(totalMinutes / goal, 1.0)
         } else if habit.isScheduledToday {
             return habit.progressPercentage
         } else {
@@ -329,6 +358,8 @@ struct HabitRowView: View {
     private var isCompletedForDisplay: Bool {
         if habit.isRoutineHabit {
             return habit.updatedGoalMetToday
+        } else if habit.isTimerHabit {
+            return habit.timerGoalMetToday
         } else if habit.isScheduledToday {
             // If scheduled today, check if goal is met
             return habit.goalMetToday
@@ -341,6 +372,8 @@ struct HabitRowView: View {
     private var buttonIcon: String {
         if habit.canUseCopingPlanToday {
             return "heart.fill"
+        } else if habit.isTimerHabit {
+            return timerButtonIcon
         } else if isCompletedForDisplay {
             return "checkmark"
         } else {
@@ -368,6 +401,43 @@ struct HabitRowView: View {
         }
     }
     
+    private var progressText: String {
+        if habit.isTimerHabit {
+            return timerRemainingDisplay
+        } else if habit.isScheduledToday {
+            return habit.currentProgressString
+        } else {
+            return "\(completionsToday) \(habit.metricUnit ?? "times")"
+        }
+    }
+
+    private var timerRemainingDisplay: String {
+        // goalValue is in minutes (Double). Include live elapsed time.
+        let completedSeconds = (habit.timerMinutesToday * 60.0) + timerElapsedTime
+        let goalSeconds = max(habit.goalValue * 60.0, 0)
+        let remaining = max(0, goalSeconds - completedSeconds)
+        let hours = Int(remaining) / 3600
+        let minutes = (Int(remaining) % 3600) / 60
+        let seconds = Int(remaining) % 60
+        if remaining >= 3600 {
+            return String(format: "%dh %dm left", hours, minutes)
+        } else if remaining >= 60 {
+            return String(format: "%dm left", minutes)
+        } else {
+            return String(format: "%ds left", seconds)
+        }
+    }
+    
+    private var timerButtonIcon: String {
+        if habit.timerGoalMetToday {
+            return "checkmark"
+        } else if isTimerRunning {
+            return "pause.fill"
+        } else {
+            return "play.fill"
+        }
+    }
+    
     private var routineStepsView: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Progress bar with toggle button
@@ -391,9 +461,17 @@ struct HabitRowView: View {
                     }
                 }) {
                     if isRoutineExpanded {
-                        Image(systemName: "chevron.up")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        // Same size as collapsed button for consistency
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.1))
+                                .frame(width: 30, height: 30)
+                            
+                            Image(systemName: "chevron.up")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+                        }
                     } else {
                         // Bigger toggle button when collapsed, similar to regular habit buttons
                         ZStack {
@@ -435,7 +513,7 @@ struct HabitRowView: View {
     }
     
     var body: some View {
-        HStack(spacing: 15) {
+        HStack(alignment: .top, spacing: 15) {
             // Habit Icon
             ZStack {
                 Circle()
@@ -446,9 +524,10 @@ struct HabitRowView: View {
                     .font(.title2)
                     .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
             }
+            .padding(.top, 2) // Align with title baseline
             
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
+                HStack(alignment: .center) {
                     Text(habit.name ?? "Unnamed Habit")
                         .font(.headline)
                         .foregroundColor(.primary)
@@ -481,8 +560,9 @@ struct HabitRowView: View {
                         ProgressView(value: progressPercentage)
                             .progressViewStyle(LinearProgressViewStyle(tint: Color(hex: habit.colorHex ?? "#007AFF")))
                             .frame(height: 4)
+                            .animation(.linear(duration: 0.25), value: progressPercentage)
                         
-                        Text(habit.isScheduledToday ? habit.currentProgressString : "\(completionsToday) \(habit.metricUnit ?? "times")")
+                        Text(progressText)
                             .font(.caption2)
                             .foregroundColor(isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
                             .fontWeight(isCompletedForDisplay ? .bold : .medium)
@@ -490,11 +570,60 @@ struct HabitRowView: View {
                 }
             }
             
-            // Action buttons (only show for non-routine habits)
+            // Action button ring (show for all non-routine habits, including timers)
             if !habit.isRoutineHabit {
-                HStack(spacing: 8) {
-                    // Complete button with press-and-hold ring animation (only if scheduled today or daily)
-                    ZStack {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        // When timer is running, show an expand focus button to the LEFT of the play/pause ring
+                        if habit.isTimerHabit && isTimerRunning {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.2), lineWidth: 3)
+                                    .frame(width: 36, height: 36)
+
+                                Circle()
+                                    .trim(from: 0, to: holdProgressExpand)
+                                    .stroke(
+                                        Color(hex: habit.colorHex ?? "#007AFF").opacity(0.6),
+                                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                                    )
+                                    .frame(width: 36, height: 36)
+                                    .rotationEffect(.degrees(-90))
+                                    .animation(.linear(duration: 0.1), value: holdProgressExpand)
+
+                                Circle()
+                                    .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(isHoldingExpand ? 0.3 : 0.1))
+                                    .frame(width: 30, height: 30)
+                                    .scaleEffect(isHoldingExpand ? 0.95 : 1.0)
+                                    .opacity(isInCooldownExpand ? 0.5 : 1.0)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHoldingExpand)
+                                    .animation(.easeInOut(duration: 0.2), value: isInCooldownExpand)
+
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+                                    .scaleEffect(isHoldingExpand ? 0.9 : 1.0)
+                                    .opacity(isInCooldownExpand ? 0.5 : 1.0)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHoldingExpand)
+                                    .animation(.easeInOut(duration: 0.2), value: isInCooldownExpand)
+                            }
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { _ in
+                                        if !isHoldingExpand && !isInCooldownExpand {
+                                            startHoldingExpand()
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        endHoldingExpand()
+                                    }
+                            )
+                        }
+
+                        // Complete button with press-and-hold ring animation (only if scheduled today or daily)
+                        ZStack {
                     // Background ring that fills up during hold
                     Circle()
                         .stroke(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.2), lineWidth: 3)
@@ -530,20 +659,23 @@ struct HabitRowView: View {
                         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHolding)
                         .animation(.easeInOut(duration: 0.2), value: isInCooldown)
                 }
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in
-                            if !isHolding && !isInCooldown {
-                                startHolding()
-                            }
-                        }
-                        .onEnded { _ in
-                            endHolding()
-                        }
-                )
-
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { _ in
+                                    if !isHolding && !isInCooldown {
+                                        startHolding()
+                                    }
+                                }
+                                .onEnded { _ in
+                                    endHolding()
+                                }
+                        )
+                    }
+                    Spacer()
                 }
             }
+            
+            // Timer action button removed: timer now uses the main hold ring
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
@@ -552,6 +684,24 @@ struct HabitRowView: View {
                 .fill(isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == "light" ? 0.1 : 0.2) : Color.clear)
         )
         .animation(.easeInOut(duration: 0.3), value: isCompletedForDisplay)
+        .onDisappear {
+            // Clean up timer if this view disappears
+            if isTimerRunning {
+                pauseInlineTimer()
+            }
+        }
+        // Full screen focus mode for timers
+        .fullScreenCover(isPresented: $showFocusMode) {
+            FocusModeView(
+                habit: habit,
+                isPresented: $showFocusMode,
+                elapsedTime: $timerElapsedTime,
+                isRunning: isTimerRunning,
+                onToggleTimer: {
+                    if isTimerRunning { pauseInlineTimer() } else { startInlineTimer() }
+                }
+            )
+        }
     }
     
     private func startHolding() {
@@ -564,7 +714,7 @@ struct HabitRowView: View {
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
         
-        // Start progress timer (1.5 second hold duration)
+        // Hold duration
         let totalDuration: Double = 0.75
         let updateInterval: Double = 0.05
         let progressIncrement = updateInterval / totalDuration
@@ -574,9 +724,26 @@ struct HabitRowView: View {
             
             if holdProgress >= 1.0 {
                 timer.invalidate()
-                completeHabit()
-                endHolding(completed: true)
-                startCooldown()
+                // On hold complete, branch logic based on habit type
+                if habit.canUseCopingPlanToday {
+                    completeCopingPlan()
+                    endHolding(completed: true)
+                    startCooldown()
+                } else if habit.isTimerHabit {
+                    if !habit.timerGoalMetToday {
+                        if isTimerRunning {
+                            pauseInlineTimer()
+                        } else {
+                            startInlineTimer()
+                        }
+                    }
+                    endHolding(completed: true)
+                    startCooldown()
+                } else {
+                    completeHabit()
+                    endHolding(completed: true)
+                    startCooldown()
+                }
             }
         }
     }
@@ -707,6 +874,114 @@ struct HabitRowView: View {
         }
         
         habit.longestStreak = max(habit.longestStreak, habit.currentStreak)
+    }
+    
+    
+    private func startInlineTimer() {
+        // Medium haptic feedback for timer start
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+            activeTimerHabit = habit
+        timerStartTime = Date()
+        timerElapsedTime = 0
+        
+        runningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+            if let start = timerStartTime {
+                timerElapsedTime = Date().timeIntervalSince(start)
+                
+                // Check if goal is completed
+                let totalMinutesToday = habit.timerMinutesToday + (timerElapsedTime / 60.0)
+                if totalMinutesToday >= habit.goalValue {
+                    // Goal completed!
+                    pauseInlineTimer()
+                    saveInlineTimerProgress()
+                }
+            }
+        }
+    }
+    
+    private func pauseInlineTimer() {
+        // Light haptic feedback for pause
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+        
+        runningTimer?.invalidate()
+        runningTimer = nil
+            activeTimerHabit = nil
+        
+        // Save progress when pausing
+        if timerElapsedTime > 0 {
+            saveInlineTimerProgress()
+        }
+    }
+
+    // MARK: - Expand Hold helpers
+    private func startHoldingExpand() {
+        guard !isHoldingExpand && !isInCooldownExpand else { return }
+        isHoldingExpand = true
+        holdProgressExpand = 0.0
+
+        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+        impactFeedback.impactOccurred()
+
+        let totalDuration: Double = 0.75
+        let updateInterval: Double = 0.05
+        let progressIncrement = updateInterval / totalDuration
+
+        holdTimerExpand = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { timer in
+            holdProgressExpand += progressIncrement
+            if holdProgressExpand >= 1.0 {
+                timer.invalidate()
+                endHoldingExpand(completed: true)
+                startCooldownExpand()
+                showFocusMode = true
+            }
+        }
+    }
+
+    private func endHoldingExpand(completed: Bool = false) {
+        holdTimerExpand?.invalidate()
+        holdTimerExpand = nil
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            isHoldingExpand = false
+            if !completed { holdProgressExpand = 0.0 }
+        }
+        if !completed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { holdProgressExpand = 0.0 }
+        }
+    }
+
+    private func startCooldownExpand() {
+        isInCooldownExpand = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { holdProgressExpand = 0.0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { isInCooldownExpand = false }
+    }
+    
+    private func saveInlineTimerProgress() {
+        guard timerElapsedTime > 0 else { return }
+        
+        let completion = HabitCompletion(context: viewContext)
+        completion.id = UUID()
+        completion.completedDate = Date()
+        completion.habit = habit
+        completion.timerDuration = timerElapsedTime / 60.0 // Convert to minutes
+        
+        // Update habit statistics if goal is reached for the first time today
+        let totalMinutesToday = habit.timerMinutesToday + (timerElapsedTime / 60.0)
+        if totalMinutesToday >= habit.goalValue && !habit.timerGoalMetToday {
+            habit.totalCompletions += 1
+            habit.lastCompletedDate = Date()
+        }
+        
+        do {
+            try viewContext.save()
+            // Reset timer state
+            timerElapsedTime = 0
+            timerStartTime = nil
+        } catch {
+            print("Error saving timer completion: \(error)")
+        }
     }
     
     private func toggleStep(at index: Int) {
