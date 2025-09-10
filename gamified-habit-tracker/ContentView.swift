@@ -165,7 +165,7 @@ struct ContentView: View {
     
     private var toolbarPrincipal: some View {
         HStack {
-            Text("Habits")
+            Text("Trackr")
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
