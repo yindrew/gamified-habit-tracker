@@ -10,27 +10,22 @@ import CoreData
 
 
 struct HabitRowView: View {
-    @ObservedObject var habit: Habit
+
+    @ObservedObject var habit: Habit // View Model
     let colorScheme: String
-    @Binding var activeTimerHabit: Habit?
+    @Binding var activeTimerHabit: Habit? // View Model?
     @Environment(\.managedObjectContext) private var viewContext
+
+    // Animation for Button
     @State private var showingCompletionAnimation = false
-    @State private var isHolding = false
-    @State private var holdProgress: Double = 0.0
-    @State private var holdTimer: Timer?
-    @State private var isInCooldown = false
-    @State private var isRoutineExpanded = false
+    @State private var isRoutineExpanded = false // view model 
     
     // Timer states
-    @State private var timerElapsedTime: TimeInterval = 0
-    @State private var runningTimer: Timer?
-    @State private var timerStartTime: Date?
-    @State private var showFocusMode = false
-    // Expand hold states
-    @State private var isHoldingExpand = false
-    @State private var holdProgressExpand: Double = 0.0
-    @State private var holdTimerExpand: Timer?
-    @State private var isInCooldownExpand = false
+    @State private var timerElapsedTime: TimeInterval = 0 //vm
+    @State private var runningTimer: Timer? //vm
+    @State private var timerStartTime: Date? //vm
+    @State private var showFocusMode = false //vm
+    // Expand ring interactions are encapsulated by HabitActionButtons/PressHoldRingButton
     
     private var isTimerRunning: Bool {
         activeTimerHabit?.id == habit.id
@@ -91,11 +86,11 @@ struct HabitRowView: View {
     
     private var buttonBackgroundColor: Color {
         if habit.canUseCopingPlanToday {
-            return Color.pink.opacity(isHolding ? 0.3 : 0.1)
+            return Color.pink.opacity(0.1)
         } else if isCompletedForDisplay {
             return Color(hex: habit.colorHex ?? "#007AFF")
         } else {
-            return Color(hex: habit.colorHex ?? "#007AFF").opacity(isHolding ? 0.3 : 0.1)
+            return Color(hex: habit.colorHex ?? "#007AFF").opacity(0.1)
         }
     }
     
@@ -317,49 +312,7 @@ struct HabitRowView: View {
         }
     }
     
-    private func startHolding() {
-        guard !isHolding && !isInCooldown else { return }
-        
-        isHolding = true
-        holdProgress = 0.0
-        
-        // Light haptic feedback on start
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-        
-        // Hold duration
-        let totalDuration: Double = 0.75
-        let updateInterval: Double = 0.05
-        let progressIncrement = updateInterval / totalDuration
-        
-        holdTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { timer in
-            holdProgress += progressIncrement
-            
-            if holdProgress >= 1.0 {
-                timer.invalidate()
-                // On hold complete, branch logic based on habit type
-                if habit.canUseCopingPlanToday {
-                    completeCopingPlan()
-                    endHolding(completed: true)
-                    startCooldown()
-                } else if habit.isTimerHabit {
-                    if !habit.timerGoalMetToday {
-                        if isTimerRunning {
-                            pauseInlineTimer()
-                        } else {
-                            startInlineTimer()
-                        }
-                    }
-                    endHolding(completed: true)
-                    startCooldown()
-                } else {
-                    completeHabit()
-                    endHolding(completed: true)
-                    startCooldown()
-                }
-            }
-        }
-    }
+    // Press-hold logic is encapsulated by PressHoldRingButton
 
     private func handleMainHoldCompleted() {
         if habit.canUseCopingPlanToday {
@@ -388,38 +341,7 @@ struct HabitRowView: View {
         }
     }
     
-    private func endHolding(completed: Bool = false) {
-        holdTimer?.invalidate()
-        holdTimer = nil
-        
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-            isHolding = false
-            if !completed {
-                holdProgress = 0.0
-            }
-        }
-        
-        // Reset progress after animation if not completed
-        if !completed {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                holdProgress = 0.0
-            }
-        }
-    }
     
-    private func startCooldown() {
-        isInCooldown = true
-        
-        // Reset progress after completion animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            holdProgress = 0.0
-        }
-        
-        // End cooldown after 0.2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            isInCooldown = false
-        }
-    }
     
     private func completeHabit() {
         // Check if this is a coping plan completion
@@ -458,7 +380,6 @@ struct HabitRowView: View {
             // Reset animation after delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 showingCompletionAnimation = false
-                holdProgress = 0.0
             }
         }
     }
@@ -484,7 +405,6 @@ struct HabitRowView: View {
             // Reset animation after delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 showingCompletionAnimation = false
-                holdProgress = 0.0
             }
         }
     }
@@ -522,7 +442,7 @@ struct HabitRowView: View {
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
         
-            activeTimerHabit = habit
+        activeTimerHabit = habit
         timerStartTime = Date()
         timerElapsedTime = 0
         
@@ -548,7 +468,7 @@ struct HabitRowView: View {
         
         runningTimer?.invalidate()
         runningTimer = nil
-            activeTimerHabit = nil
+        activeTimerHabit = nil
         
         // Save progress when pausing
         if timerElapsedTime > 0 {
@@ -556,47 +476,7 @@ struct HabitRowView: View {
         }
     }
 
-    // MARK: - Expand Hold helpers
-    private func startHoldingExpand() {
-        guard !isHoldingExpand && !isInCooldownExpand else { return }
-        isHoldingExpand = true
-        holdProgressExpand = 0.0
-
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-
-        let totalDuration: Double = 0.75
-        let updateInterval: Double = 0.05
-        let progressIncrement = updateInterval / totalDuration
-
-        holdTimerExpand = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { timer in
-            holdProgressExpand += progressIncrement
-            if holdProgressExpand >= 1.0 {
-                timer.invalidate()
-                endHoldingExpand(completed: true)
-                startCooldownExpand()
-                showFocusMode = true
-            }
-        }
-    }
-
-    private func endHoldingExpand(completed: Bool = false) {
-        holdTimerExpand?.invalidate()
-        holdTimerExpand = nil
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-            isHoldingExpand = false
-            if !completed { holdProgressExpand = 0.0 }
-        }
-        if !completed {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { holdProgressExpand = 0.0 }
-        }
-    }
-
-    private func startCooldownExpand() {
-        isInCooldownExpand = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { holdProgressExpand = 0.0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { isInCooldownExpand = false }
-    }
+    // Expand hold interactions are handled by HabitActionButtons
     
     private func saveInlineTimerProgress() {
         guard timerElapsedTime > 0 else { return }

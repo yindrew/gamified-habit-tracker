@@ -176,13 +176,23 @@ struct HabitFormView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(saveButtonText) {
-                        saveHabit()
-                    }
-                    .disabled(habitName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(saveButtonText) { saveHabit() }
+                    .disabled(isSaveDisabled)
                 }
             }
         }
+    }
+
+    // MARK: - Validation
+    private var hasAtLeastOneRoutineStep: Bool {
+        // At least one non-empty step when type is routine
+        guard habitType == .routine else { return true }
+        return routineSteps.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private var isSaveDisabled: Bool {
+        let nameEmpty = habitName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return nameEmpty || !hasAtLeastOneRoutineStep
     }
     
     // Helper for native picker summary
@@ -527,9 +537,10 @@ struct HabitFormView: View {
             }
             
             if !routineSteps.isEmpty {
-                Text("Complete all steps to mark the routine as done")
+                let missing = !hasAtLeastOneRoutineStep
+                Text(missing ? "Add at least one step to save" : "Complete all steps to mark the routine as done")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(missing ? .red : .secondary)
             }
         }
     }

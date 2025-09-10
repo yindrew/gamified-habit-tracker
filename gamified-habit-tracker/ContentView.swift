@@ -98,9 +98,7 @@ struct ContentView: View {
         }
     }
     
-    private var scheduledHabitsCompletedToday: [Habit] {
-        let calendar = Calendar.current
-        
+    private var scheduledHabitsCompletedToday: [Habit] {        
         return scheduledHabitsForToday.filter { habit in
             return habit.goalMetToday
         }
