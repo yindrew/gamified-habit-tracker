@@ -48,51 +48,10 @@ struct HabitDetailView: View {
         )
     }
     
-    private var completionData: [DailyCompletion] {
-        let calendar = Calendar.current
-        let today = Date()
-        
-        let startDate: Date
-        if let days = selectedTimePeriod.days {
-            guard let calculatedStartDate = calendar.date(byAdding: .day, value: -(days - 1), to: today) else {
-                return []
-            }
-            startDate = calculatedStartDate
-        } else {
-            // All time - use creation date or first completion date
-            startDate = habit.createdDate ?? completions.last?.completedDate ?? today
-        }
-        
-        var dailyData: [Date: Int] = [:]
-        
-        // Calculate the number of days to show
-        let numberOfDays: Int
-        if let days = selectedTimePeriod.days {
-            numberOfDays = days
-        } else {
-            // For "All Time", calculate days from start date to today
-            numberOfDays = calendar.dateComponents([.day], from: startDate, to: today).day ?? 0
-        }
-        
-        // Initialize all days with 0
-        for i in 0..<numberOfDays {
-            if let date = calendar.date(byAdding: .day, value: -i, to: today) {
-                let dayStart = calendar.startOfDay(for: date)
-                dailyData[dayStart] = 0
-            }
-        }
-        
-        // Count completions per day - safely handle nil dates
-        for completion in completions {
-            guard let completedDate = completion.completedDate,
-                  completedDate >= startDate else { continue }
-            
-            let dayStart = calendar.startOfDay(for: completedDate)
-            dailyData[dayStart, default: 0] += 1
-        }
-        
-        return dailyData.map { DailyCompletion(date: $0.key, count: $0.value) }
-            .sorted { $0.date < $1.date }
+    private var chartData: (points: [ChartDataPoint], label: String) {
+        let array = Array(completions)
+        let built = ChartDataBuilder.dailyPoints(for: habit, completions: array, days: selectedTimePeriod.days)
+        return (built.points, built.yLabel.rawValue)
     }
     
     private var streakData: [StreakPeriod] {
@@ -297,13 +256,13 @@ struct HabitDetailView: View {
             }
             .pickerStyle(SegmentedPickerStyle())
             
-            Chart(completionData) { item in
+            Chart(chartData.points) { item in
                 BarMark(
                     x: .value("Date", item.date),
-                    y: .value("Completions", Double(item.count) * (habit.metricValue))
+                    y: .value("Value", item.value)
                 )
                 .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF"))
-                .opacity(item.count > 0 ? 1.0 : 0.3)
+                .opacity(item.value > 0 ? 1.0 : 0.3)
             }
             .frame(height: 200)
             .chartXAxis {
@@ -318,7 +277,7 @@ struct HabitDetailView: View {
                     AxisGridLine()
                 }
             }
-            .chartYAxisLabel(habit.metricUnit ?? "completions", position: .leading)
+            .chartYAxisLabel(chartData.label, position: .leading)
         }
         .padding()
         .background(Color(.systemGray6))
