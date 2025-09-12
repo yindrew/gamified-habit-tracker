@@ -11,12 +11,11 @@ More color themes
 more effective coping plan
 add button includes journal entry / mood tracker
 add button includes etheral tasks such as take out trash
-sound when finishing the timer 
-edit cant change the habit type
-habits should be slideable. slide left, coping plan if avaliable, and skip if avaliable.
-pressing ahdn hodling the habit long bar starts the circle as well. 
+habits should be slideable. slide left, coping plan if avaliable, and skip if avaliable. Swipe right to edit or delete. 
 displaying timer as long notification. 
-pressing return during the routine steps should automatically create a new step.
+Fix the stats for the timer habit, needs to display different values. Instead of total completions, and This week it should be total time and time spent this week in Days, Hours, Minutes format w D, H, M 
+the habits page shouldn't show completions, but show the actual metric instead. 
+
 
 
 NOTES:
@@ -50,14 +49,4 @@ Same completionist idea across multiple people? A group of people can log a sing
 how should the friends section look? 
 
 The creation of a group habit. It takes the whole group to complete a day with each person creating their own part. I'm not sure how well this will work in practice, and people can easily just cheat and not do it. Accountability is good, but its hard to enforce real action. 
-
-
-
-make the components slideable? It feels very intuitive to slide the components in the home screen. Slide right, edit and delete. Slide left, Coping plan if avaliable, skip if avaliable
-
-pressing and holding the entire bar starts the circle.
-
-timer should be displayed as a long notification as well. 
-
-Pressing return during the routine steps should automatically create a new step. 
 

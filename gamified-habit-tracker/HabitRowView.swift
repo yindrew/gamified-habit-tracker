@@ -179,7 +179,12 @@ struct HabitRowView: View {
                 mainFillColor: viewModel.buttonBackgroundColor,
                 mainIcon: viewModel.buttonIcon,
                 mainIconColor: viewModel.buttonIconColor,
-                onMainHoldCompleted: { handleMainHoldCompleted() }
+                onMainHoldCompleted: { handleMainHoldCompleted() },
+                onExpandHoldCompleted: {
+                    DispatchQueue.main.async {
+                        showFocusMode = true
+                    }
+                }
             )
             
             // Timer action button removed: timer now uses the main hold ring
