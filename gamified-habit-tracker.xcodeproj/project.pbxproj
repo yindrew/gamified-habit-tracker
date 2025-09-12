@@ -53,11 +53,6 @@
 			path = "gamified-habit-trackerTests";
 			sourceTree = "<group>";
 		};
-		49D4D4CD2E6B80B0008500A1 /* gamified-habit-trackerUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "gamified-habit-trackerUITests";
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,7 +85,6 @@
 			children = (
 				49D4D4AE2E6B80AE008500A1 /* gamified-habit-tracker */,
 				49D4D4C32E6B80B0008500A1 /* gamified-habit-trackerTests */,
-				49D4D4CD2E6B80B0008500A1 /* gamified-habit-trackerUITests */,
 				49D4D4AD2E6B80AE008500A1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -165,9 +159,6 @@
 			);
 			dependencies = (
 				49D4D4CC2E6B80B0008500A1 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				49D4D4CD2E6B80B0008500A1 /* gamified-habit-trackerUITests */,
 			);
 			name = "gamified-habit-trackerUITests";
 			packageProductDependencies = (

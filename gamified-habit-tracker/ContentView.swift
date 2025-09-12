@@ -261,7 +261,6 @@ private struct HabitsListView: View {
         List {
             ForEach(sortedHabits, id: \.objectID) { (habit: Habit) in
                 ZStack {
-<<<<<<< ours
                     // Hidden selection-driven link; avoids gesture conflicts
                     NavigationLink(
                         destination: HabitDetailView(habit: habit),
@@ -270,10 +269,8 @@ private struct HabitsListView: View {
                     ) { EmptyView() }
                     .frame(width: 0, height: 0)
                     .hidden()
-=======
                     NavigationLink(destination: HabitDetailView(habit: habit)) { EmptyView() }
                         .opacity(0)
->>>>>>> theirs
 
                     HabitRowView(
                         habit: habit,
