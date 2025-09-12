@@ -18,6 +18,8 @@ struct HabitActionButtons: View {
     // Actions
     var onMainHoldCompleted: () -> Void
     var onExpandHoldCompleted: () -> Void
+    // External holding to drive main ring from outside (e.g., full-row press)
+    var externalHolding: Binding<Bool>? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -35,7 +37,8 @@ struct HabitActionButtons: View {
                 fillColor: mainFillColor,
                 icon: mainIcon,
                 iconColor: mainIconColor,
-                onHoldCompleted: { onMainHoldCompleted() }
+                onHoldCompleted: { onMainHoldCompleted() },
+                externalHolding: externalHolding
             )
         }
     }

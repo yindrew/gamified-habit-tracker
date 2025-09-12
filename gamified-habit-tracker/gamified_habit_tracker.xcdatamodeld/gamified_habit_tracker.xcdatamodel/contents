@@ -11,6 +11,8 @@
         <attribute name="isActive" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
         <attribute name="lastCompletedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="lastCopingDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="notificationTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="notificationsEnabled" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="longestStreak" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="scheduleType" optional="YES" attributeType="String" defaultValueString="daily"/>

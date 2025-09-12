@@ -196,6 +196,8 @@ final class HabitRowViewModel: ObservableObject {
                 // Check if goal is completed
                 let totalMinutesToday = self.habit.timerMinutesToday + (self.timerElapsedTime / 60.0)
                 if totalMinutesToday >= self.habit.goalValue && !self.sessionAllowsOverrun {
+                    // Play a small ring and auto-stop at goal
+                    SoundManager.playTimerComplete()
                     self.pauseTimer(saveProgress: true)
                     self.didAutoStopAtGoal = true
                 }

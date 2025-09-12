@@ -1,41 +1,63 @@
-to do 
+TODO
+
+Logging for health data
+Handling Failure
+Badges 
+Data storage
+Sign in Screen
+Friend Section
+Group habits
+More color themes
+more effective coping plan
+add button includes journal entry / mood tracker
+add button includes etheral tasks such as take out trash
+sound when finishing the timer 
+edit cant change the habit type
+habits should be slideable. slide left, coping plan if avaliable, and skip if avaliable.
+pressing ahdn hodling the habit long bar starts the circle as well. 
+displaying timer as long notification. 
+pressing return during the routine steps should automatically create a new step.
 
 
-(1) Social aspect 
-buddy systems
-group habits
-group quests
-accountability 
-team goals / competition
+NOTES:
 
-
-
-(2) notifications 
-setup page including a time frame and sending notification for it
-clear and not passive aggresive notifications
-adaptive notifications using AI / analytics for optimal time, if reading habit = 9pm usualy, reminders can show up close to that time.
-smart detection, if stationary prompt for a walk?
-
-(3) convinence
-automatically logging for health data
-
-
-(4) effectiveness
-handling missing streaks properly
-handling failure effectively.
-meaningful insights, like “You’re 20% more likely to complete your habits on weekdays than weekends” or “When you do Habit X, you tend to also succeed in Habit Y.” These individualized insights can motivate users by teaching them about their own behavior.
-built in focus timer pomodoro or countdown
-allowing of journaling mood alongside markets. 
-
-(5) badges
-habit forming badge (66 days)
+(1) Badge Notes
+for streaking:
 7 days in a row
-resilience badge: continuing after failure
+month in a row
+year in a row
+66 days in a row (habit formed)
 
-adding different color themes
+Resilience badge: 
+used coping plan
+Rallied after failing 
+
+For time:
+total time completed cross 10 hours
+Total time cross 100 hours
+total time cros 1000 hours
+
+For routine:
+Routine accomplished 7 days in a row
+Routine accomplished in a variety of orders
+
+Testing application
+Try and test the application for a week or so and verify its doing the right thing for logging data. 
+
+
+(2) group work
+Same completionist idea across multiple people? A group of people can log a single habit. Or maybe its more of just combining habits together ? If they both can work on the same habit, they can each have their own goals, and only when they complete it together does it count. 
+how should the friends section look? 
+
+The creation of a group habit. It takes the whole group to complete a day with each person creating their own part. I'm not sure how well this will work in practice, and people can easily just cheat and not do it. Accountability is good, but its hard to enforce real action. 
 
 
 
-validating that all the data is stored properly, writing tests to verify across days the information is stored and displayed properly. 
+make the components slideable? It feels very intuitive to slide the components in the home screen. Slide right, edit and delete. Slide left, Coping plan if avaliable, skip if avaliable
 
+pressing and holding the entire bar starts the circle.
+
+timer should be displayed as a long notification as well. 
+
+Pressing return during the routine steps should automatically create a new step. 
 

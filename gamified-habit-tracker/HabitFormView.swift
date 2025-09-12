@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import UIKit
+import UserNotifications
 
 struct HabitFormView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -40,6 +41,11 @@ struct HabitFormView: View {
     @State private var selectedWeekdays: Set<Int> = []
     @State private var selectedMonthDays: Set<Int> = []
     
+    // Notifications
+    @State private var notificationsEnabled: Bool = false
+    @State private var notificationTime: Date = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var showNotificationDeniedAlert: Bool = false
+    
     // Coping Plan
     @State private var copingPlan: String = ""
     
@@ -52,6 +58,9 @@ struct HabitFormView: View {
     @State private var timerMinutes: Int = 30
     @State private var timerSeconds: Int = 0
     @State private var timerDurationSeconds: TimeInterval = 30 * 60
+
+    // Focus management for routine step TextFields
+    @FocusState private var focusedRoutineIndex: Int?
     
     enum HabitType: String, CaseIterable {
         case frequency = "frequency"
@@ -81,6 +90,11 @@ struct HabitFormView: View {
             case .timer: return "timer"
             }
         }
+    }
+
+    // Preview-safe detection to avoid system interactions in Xcode canvas
+    private var isRunningInPreviews: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
     
     let availableIcons = ["star", "heart", "bolt", "leaf", "flame", "drop", "moon", "sun.max", "figure.run", "book", "music.note", "paintbrush", "camera", "gamecontroller", "dumbbell", "bicycle", "car", "airplane", "house", "briefcase", "graduationcap", "stethoscope", "wrench", "hammer", "scissors", "pencil", "cup.and.saucer", "fork.knife"]
@@ -113,6 +127,15 @@ struct HabitFormView: View {
             
             // Initialize coping plan
             self._copingPlan = State(initialValue: habit.copingPlan ?? "")
+            
+            // Initialize notifications
+            self._notificationsEnabled = State(initialValue: habit.notificationsEnabled)
+            if let time = habit.notificationTime {
+                self._notificationTime = State(initialValue: time)
+            } else {
+                let defaultTime = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+                self._notificationTime = State(initialValue: defaultTime)
+            }
             
             // Initialize habit type and routine steps
             let existingHabitType = HabitType(rawValue: habit.habitType ?? "frequency") ?? .frequency
@@ -163,9 +186,12 @@ struct HabitFormView: View {
                 habitDetailsSection
                 customizationSection
                 scheduleSection
+                notificationsSection
                 copingPlanSection
                 goalSection
             }
+            // Dismiss keyboard on scroll/tap away
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -180,6 +206,13 @@ struct HabitFormView: View {
                     .disabled(isSaveDisabled)
                 }
             }
+            .alert("Notifications Disabled", isPresented: $showNotificationDeniedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Please enable notifications in Settings to receive reminders.")
+            }
+            // Non-intrusive tap-away keyboard dismiss overlay
+            .background(KeyboardDismissOverlay())
         }
     }
 
@@ -382,6 +415,32 @@ struct HabitFormView: View {
         }
     }
     
+    private var notificationsSection: some View {
+        Section(header: Text("Notifications"), footer: Text("Reminds you at the chosen time only on scheduled days.")) {
+            Toggle(isOn: $notificationsEnabled) {
+                Text("Enable Notifications")
+            }
+            
+            if notificationsEnabled {
+                if isRunningInPreviews {
+                    // In Xcode previews, avoid interactive DatePicker to prevent focus issues
+                    HStack {
+                        Text("Time of Day")
+                        Spacer()
+                        Text(notificationTime, style: .time)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    // Use wheel style to avoid focus issues with compact picker in Form/Sheet
+                    DatePicker("Time of Day", selection: $notificationTime, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .datePickerStyle(.wheel)
+                }
+            }
+        }
+        .disabled(isRunningInPreviews) // Keep section visible but non-interactive in previews
+    }
+    
     private var copingPlanSection: some View {
         Section(header: Text("Coping Plan"), footer: Text("A simpler alternative you can do if you miss your scheduled habit. Completing it the next day maintains your streak for streak over 7 days.")) {
             TextField("e.g., Do 5 push-ups instead of full workout", text: $copingPlan, axis: .vertical)
@@ -520,6 +579,15 @@ struct HabitFormView: View {
                     TextField("Enter step", text: $routineSteps[index])
                         .textFieldStyle(RoundedBorderTextFieldStyle())
                         .textInputAutocapitalization(.sentences)
+                        .submitLabel(.next)
+                        .focused($focusedRoutineIndex, equals: index)
+                        .onSubmit {
+                            if index == routineSteps.count - 1 {
+                                addStep()
+                            } else {
+                                focusedRoutineIndex = index + 1
+                            }
+                        }
                     
                     if routineSteps.count > 1 {
                         Button(action: { 
@@ -571,6 +639,8 @@ struct HabitFormView: View {
     
     private func addStep() {
         routineSteps.append("")
+        // Focus the newly added step
+        focusedRoutineIndex = routineSteps.count - 1
     }
     
     private func removeStep(at index: Int) {
@@ -582,13 +652,36 @@ struct HabitFormView: View {
     // MARK: - Actions
     
     private func saveHabit() {
-        withAnimation {
-            switch mode {
-            case .add:
-                createNewHabit()
-            case .edit(let habit):
-                updateExistingHabit(habit)
+        let proceedToSave: () -> Void = {
+            withAnimation {
+                switch mode {
+                case .add:
+                    createNewHabit()
+                case .edit(let habit):
+                    updateExistingHabit(habit)
+                }
             }
+        }
+
+        // In Xcode previews, skip notification permission entirely
+        if isRunningInPreviews {
+            proceedToSave()
+            return
+        }
+
+        if notificationsEnabled {
+            NotificationManager.shared.requestAuthorizationIfNeeded { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        proceedToSave()
+                    } else {
+                        notificationsEnabled = false
+                        showNotificationDeniedAlert = true
+                    }
+                }
+            }
+        } else {
+            proceedToSave()
         }
     }
     
@@ -607,6 +700,8 @@ struct HabitFormView: View {
         newHabit.createdDate = Date()
         newHabit.lastCompletedDate = nil
         newHabit.isActive = true
+        newHabit.notificationsEnabled = notificationsEnabled
+        newHabit.notificationTime = notificationTime
         
         // Set metrics (different for timer habits)
         if habitType == .timer {
@@ -638,6 +733,12 @@ struct HabitFormView: View {
         }
         
         saveContext()
+        // Schedule or cancel notifications after saving
+        if newHabit.notificationsEnabled {
+            NotificationManager.shared.scheduleNotifications(for: newHabit)
+        } else {
+            NotificationManager.shared.cancelNotifications(for: newHabit)
+        }
     }
     
     private func updateExistingHabit(_ habit: Habit) {
@@ -647,6 +748,8 @@ struct HabitFormView: View {
         habit.icon = selectedIcon
         habit.colorHex = selectedColor.toHex()
         habit.targetFrequency = Int32(ceil(goalValue / metricValue))
+        habit.notificationsEnabled = notificationsEnabled
+        habit.notificationTime = notificationTime
         
         // Set metrics (different for timer habits)
         if habitType == .timer {
@@ -680,6 +783,12 @@ struct HabitFormView: View {
         }
         
         saveContext()
+        // Update notifications to match latest config
+        if habit.notificationsEnabled {
+            NotificationManager.shared.scheduleNotifications(for: habit)
+        } else {
+            NotificationManager.shared.cancelNotifications(for: habit)
+        }
     }
     
     private func setScheduleValues(for habit: Habit) {

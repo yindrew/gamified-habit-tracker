@@ -18,6 +18,9 @@ struct PressHoldRingButton: View {
     var holdDuration: Double = 0.75
     var cooldownDuration: Double = 0.8
     var onHoldCompleted: () -> Void
+    // Optional external holding controller: when provided, internal gesture is disabled
+    // and the button animates based on this binding (true while holding).
+    var externalHolding: Binding<Bool>? = nil
 
     @State private var isHolding = false
     @State private var holdProgress: CGFloat = 0
@@ -50,14 +53,20 @@ struct PressHoldRingButton: View {
                 .foregroundColor(iconColor)
                 .opacity(isInCooldown ? 0.5 : 1.0)
         }
-        .contentShape(Rectangle()) 
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in startHoldIfNeeded() }
-                .onEnded { _ in endHold() }
-        )
+        .contentShape(Rectangle())
+        // Use internal gesture only if no external holding is supplied
+        .modifier(InternalHoldGestureModifier(isEnabled: externalHolding == nil, onStart: startHoldIfNeeded, onEnd: endHold))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint(Text("Press and hold"))
+        // React to external holding state changes
+        .onChange(of: externalHolding?.wrappedValue ?? false) { _, isHolding in
+            guard externalHolding != nil else { return }
+            if isHolding {
+                startHoldIfNeeded()
+            } else {
+                endHold()
+            }
+        }
     }
 
     private func startHoldIfNeeded() {
@@ -101,6 +110,25 @@ struct PressHoldRingButton: View {
                 isInCooldown = false
                 holdProgress = 0
             }
+        }
+    }
+}
+
+// Helper view modifier to conditionally attach internal hold gesture
+private struct InternalHoldGestureModifier: ViewModifier {
+    let isEnabled: Bool
+    let onStart: () -> Void
+    let onEnd: () -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in onStart() }
+                    .onEnded { _ in onEnd() }
+            )
+        } else {
+            content
         }
     }
 }
