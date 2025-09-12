@@ -23,8 +23,6 @@ struct HabitRowView: View {
     @State private var showFocusMode = false
 
     @StateObject private var viewModel: HabitRowViewModel
-    // Drive main ring externally when long-pressing the whole row
-    @State private var isRowHoldingMain: Bool = false
 
     init(habit: Habit, colorScheme: String, activeTimerHabit: Binding<Habit?>) {
         self._habit = ObservedObject(wrappedValue: habit)
@@ -181,9 +179,7 @@ struct HabitRowView: View {
                 mainFillColor: viewModel.buttonBackgroundColor,
                 mainIcon: viewModel.buttonIcon,
                 mainIconColor: viewModel.buttonIconColor,
-                onMainHoldCompleted: { handleMainHoldCompleted() },
-                onExpandHoldCompleted: { showFocusMode = true },
-                externalHolding: $isRowHoldingMain
+                onMainHoldCompleted: { handleMainHoldCompleted() }
             )
             
             // Timer action button removed: timer now uses the main hold ring
@@ -195,14 +191,6 @@ struct HabitRowView: View {
                 .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == "light" ? 0.1 : 0.2) : Color.clear)
         )
         .animation(.easeInOut(duration: 0.3), value: viewModel.isCompletedForDisplay)
-        // Long-press anywhere on the row: animate ring and perform action on completion
-        .onLongPressGesture(minimumDuration: 0.75, maximumDistance: 50,
-                            pressing: { isPressing in
-                                // Start/stop external ring animation
-                                isRowHoldingMain = isPressing
-                            }, perform: {
-                                handleMainHoldCompleted()
-                            })
         .onChange(of: viewModel.didAutoStopAtGoal) { didStop in
             if didStop, showFocusMode {
                 // Close focus mode when the goal is reached automatically

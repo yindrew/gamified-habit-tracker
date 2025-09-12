@@ -255,20 +255,11 @@ private struct HabitsListView: View {
     let sortedHabits: [Habit]
     let colorScheme: String
     @Binding var activeTimerHabit: Habit?
-    @State private var selectedHabitID: NSManagedObjectID?
 
     var body: some View {
         List {
             ForEach(sortedHabits, id: \.objectID) { (habit: Habit) in
                 ZStack {
-                    // Hidden selection-driven link; avoids gesture conflicts
-                    NavigationLink(
-                        destination: HabitDetailView(habit: habit),
-                        tag: habit.objectID,
-                        selection: $selectedHabitID
-                    ) { EmptyView() }
-                    .frame(width: 0, height: 0)
-                    .hidden()
                     NavigationLink(destination: HabitDetailView(habit: habit)) { EmptyView() }
                         .opacity(0)
 
@@ -277,7 +268,6 @@ private struct HabitsListView: View {
                         colorScheme: colorScheme,
                         activeTimerHabit: $activeTimerHabit
                     )
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))

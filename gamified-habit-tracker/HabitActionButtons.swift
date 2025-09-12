@@ -17,7 +17,7 @@ struct HabitActionButtons: View {
 
     // Actions
     var onMainHoldCompleted: () -> Void
-    var onExpandHoldCompleted: () -> Void
+    var onExpandHoldCompleted: () -> Void = {}
     // External holding to drive main ring from outside (e.g., full-row press)
     var externalHolding: Binding<Bool>? = nil
 
@@ -37,8 +37,7 @@ struct HabitActionButtons: View {
                 fillColor: mainFillColor,
                 icon: mainIcon,
                 iconColor: mainIconColor,
-                onHoldCompleted: { onMainHoldCompleted() },
-                externalHolding: externalHolding
+                onHoldCompleted: { onMainHoldCompleted() }
             )
         }
     }
