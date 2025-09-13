@@ -187,7 +187,6 @@ struct HabitRowView: View {
                 }
             )
             
-            // Timer action button removed: timer now uses the main hold ring
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
@@ -196,7 +195,7 @@ struct HabitRowView: View {
                 .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == "light" ? 0.1 : 0.2) : Color.clear)
         )
         .animation(.easeInOut(duration: 0.3), value: viewModel.isCompletedForDisplay)
-        .onChange(of: viewModel.didAutoStopAtGoal) { didStop in
+        .onChange(of: viewModel.didAutoStopAtGoal) { _, didStop in
             if didStop, showFocusMode {
                 // Close focus mode when the goal is reached automatically
                 showFocusMode = false

@@ -21,9 +21,7 @@ final class HabitRowViewModel: ObservableObject {
     @Published var didAutoStopAtGoal: Bool = false
 
     // MARK: - Private runtime state
-    private var runningTimer: Timer?
-    private var timerStartTime: Date?
-    private var sessionAllowsOverrun: Bool = false
+    private var timerManager: HabitTimerManager?
     private var viewContext: NSManagedObjectContext?
 
     init(habit: Habit) {
@@ -33,6 +31,17 @@ final class HabitRowViewModel: ObservableObject {
     // MARK: - Configuration
     func setContext(_ context: NSManagedObjectContext) {
         self.viewContext = context
+        let manager = HabitTimerManager(habit: habit, context: context)
+        manager.onTick = { [weak self] elapsed in
+            self?.timerElapsedTime = elapsed
+        }
+        manager.onRunningChanged = { [weak self] running in
+            self?.isTimerRunning = running
+        }
+        manager.onAutoStop = { [weak self] in
+            self?.didAutoStopAtGoal = true
+        }
+        self.timerManager = manager
     }
 
     // MARK: - Derived Values
@@ -176,77 +185,14 @@ final class HabitRowViewModel: ObservableObject {
     func startTimer(allowOverrun: Bool = false) {
         // Need context to persist when goal reached
         guard viewContext != nil else { return }
-
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
-
-        didAutoStopAtGoal = false
-        isTimerRunning = true
-        timerStartTime = Date()
-        // Start fresh live session; UI uses totalElapsedSecondsToday
-        timerElapsedTime = 0
-        sessionAllowsOverrun = allowOverrun
-
-        runningTimer?.invalidate()
-        runningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            if let start = self.timerStartTime {
-                self.timerElapsedTime = Date().timeIntervalSince(start)
-
-                // Check if goal is completed
-                let totalMinutesToday = self.habit.timerMinutesToday + (self.timerElapsedTime / 60.0)
-                if totalMinutesToday >= self.habit.goalValue && !self.sessionAllowsOverrun {
-                    // Play a small ring and auto-stop at goal
-                    SoundManager.playTimerComplete()
-                    self.pauseTimer(saveProgress: true)
-                    self.didAutoStopAtGoal = true
-                }
-            }
-        }
+        timerManager?.start(allowOverrun: allowOverrun, initialElapsed: totalElapsedSecondsToday)
     }
 
     func pauseTimer(saveProgress: Bool) {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-
-        runningTimer?.invalidate()
-        runningTimer = nil
-        isTimerRunning = false
-
-        if saveProgress {
-            let delta: TimeInterval
-            if let start = timerStartTime { delta = Date().timeIntervalSince(start) } else { delta = timerElapsedTime }
-            saveTimerProgress(deltaSeconds: max(0, delta))
-        }
-        timerStartTime = nil
-        // Reset live session; UI remains steady via persisted totals
-        timerElapsedTime = 0
+        timerManager?.pause(saveProgress: saveProgress)
     }
 
-    func saveTimerProgress(deltaSeconds: TimeInterval) {
-        guard deltaSeconds > 0 else { return }
-        guard let context = viewContext else { return }
-
-        let completion = HabitCompletion(context: context)
-        completion.id = UUID()
-        completion.completedDate = Date()
-        completion.habit = habit
-        completion.timerDuration = deltaSeconds / 60.0 // minutes saved for this segment
-
-        // Update habit statistics if goal is reached for the first time today
-        let totalMinutesToday = habit.timerMinutesToday + (deltaSeconds / 60.0)
-        if totalMinutesToday >= habit.goalValue && !habit.timerGoalMetToday {
-            habit.totalCompletions += 1
-            habit.lastCompletedDate = Date()
-        }
-
-        do {
-            try context.save()
-            // Persisted totals now reflect the segment; live session resets in pause
-        } catch {
-            print("Error saving timer completion: \(error)")
-        }
-    }
+    // Timer persistence handled by HabitTimerManager
 
     func completeHabit() {
         guard let context = viewContext else { return }

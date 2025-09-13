@@ -24,6 +24,7 @@ setup assets for the application logo
 widgets, setting up widgets for the application allow for quick logging
 cross-platform use. Apple Watch
 
+If you can talk to a agent, and it can build a real habit out of that, that would be really sick.
 
 
 NOTES:
