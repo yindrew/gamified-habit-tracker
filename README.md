@@ -1,28 +1,33 @@
-TODO
+*TODO*
 
-Refactor out the timer logic into its own submodule? or own folder?
-app logic for streaking isn't working properly, or maybe it only works if the habit is over 3 days long? need to check
-add logic for reseting at midnight so it updates properly
-how does memory storage work? Closing out of the app loses the data such as flipping from all/today 
-displaying timer as long notification. 
-Fix the Habit Detail view for the different habits
-the habits page shouldn't show completions, but show the actual metric instead. 
-tracking screen time - habit for doing less than instead of greater than?
-Badges
-add button includes journal entry / mood tracker
-add button includes etheral tasks such as take out trash
-habits should be slideable. slide left, coping plan if avaliable, and skip if avaliable. Swipe right to edit or delete. 
-more effective coping plan
-Data storage
-Sign in Screen
-Friend Section
-Group habits
-Logging for health data
-Handling Failure
-More color themes
-setup assets for the application logo 
-widgets, setting up widgets for the application allow for quick logging
-cross-platform use. Apple Watch
+Refactor out the timer logic into its own submodule? or own folder? \
+app logic for streaking isn't working properly, or maybe it only works if the habit is over 3 days long? need to check - ***Tejus***\
+add logic for reseting at midnight so it updates properly \
+how does memory storage work? Closing out of the app loses the data such as flipping from all/today \
+displaying timer as long notification. - ***Andrew*** \
+Fix the Habit Detail view for the different habits \
+the habits page shouldn't show completions, but show the actual metric instead. \
+tracking screen time - habit for doing less than instead of greater than? \ 
+
+
+**Badges** \
+add button includes journal entry / mood tracker \
+add button includes etheral tasks such as take out trash \
+habits should be slideable. slide left, coping plan if avaliable, and skip if avaliable. Swipe right to edit or delete. \
+more effective coping plan \
+Data storage \ \
+
+**Future Features** 
+Sign in Screen  
+Friend Section  
+Group habits \
+Logging for health data \
+Handling Failure \
+More color themes \
+setup assets for the application logo \
+widgets, setting up widgets for the application allow for quick logging \
+cross-platform use. Apple Watch \
+
 
 If you can talk to a agent, and it can build a real habit out of that, that would be really sick.
 
