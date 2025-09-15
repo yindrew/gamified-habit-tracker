@@ -22,4 +22,3 @@ public struct TimerContentState: Codable, Hashable {
         self.isFinished = isFinished
     }
 }
-

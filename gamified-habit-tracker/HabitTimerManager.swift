@@ -12,6 +12,17 @@ import UIKit
 import SharedTimerModels
 
 final class HabitTimerManager {
+    // Shared registry so multiple callers reuse the same manager per habit
+    private class WeakBox<T: AnyObject> { weak var value: T?; init(_ value: T) { self.value = value } }
+    private static var registry: [String: WeakBox<HabitTimerManager>] = [:]
+    static func existingManager(for habitId: String) -> HabitTimerManager? {
+        // Clean up any deallocated entries lazily
+        if let box = registry[habitId], box.value == nil { registry.removeValue(forKey: habitId) }
+        return registry[habitId]?.value
+    }
+    private static func register(_ manager: HabitTimerManager, habitId: String) {
+        registry[habitId] = WeakBox(manager)
+    }
     // Inputs
     private let habit: Habit
     private let context: NSManagedObjectContext
@@ -38,6 +49,9 @@ final class HabitTimerManager {
         self.habit = habit
         self.context = context
         // no-op: Live Activity is started when the timer starts
+        if let id = habit.id?.uuidString {
+            HabitTimerManager.register(self, habitId: id)
+        }
     }
 
     func start(allowOverrun: Bool = false, initialElapsed: TimeInterval) {
@@ -50,6 +64,7 @@ final class HabitTimerManager {
         elapsedTime = 0
         sessionAllowsOverrun = allowOverrun
         baseElapsedAtStart = initialElapsed
+
 
         // Start/refresh Live Activity for this habit
         if let attrs = buildAttributes() {
@@ -113,14 +128,14 @@ final class HabitTimerManager {
             persistTimerProgress(deltaSeconds: max(0, delta))
         }
         timerStartTime = nil
-        // Send paused state and end the activity
+        // Send paused state and keep the activity visible (auto-ends later)
         if let habitId = habit.id?.uuidString {
             let state = TimerContentState(
                 elapsedSeconds: Int(baseElapsedAtStart + elapsedTime),
                 isRunning: false,
                 isFinished: false
             )
-            LiveActivityManager.shared.stop(habitId: habitId, finalState: state)
+            LiveActivityManager.shared.pause(habitId: habitId, state: state)
         }
 
         elapsedTime = 0
@@ -162,5 +177,26 @@ private extension HabitTimerManager {
             colorHex: habit.colorHex ?? "#007AFF",
             targetGoalSeconds: goalSeconds
         )
+    }
+}
+
+// MARK: - High-level control API
+extension HabitTimerManager {
+    /// Start or resume the timer using the habit's current progress and goal.
+    /// Decides whether overruns are allowed and seeds the initial elapsed baseline.
+    func run() {
+        let minutesSoFar = habit.timerMinutesToday
+        let allow = habit.timerGoalMetToday || (minutesSoFar >= habit.goalValue)
+        start(allowOverrun: allow, initialElapsed: minutesSoFar * 60.0)
+    }
+
+    /// Pause the timer and persist progress.
+    func pauseAndSave() {
+        pause(saveProgress: true)
+    }
+
+    /// Toggle based on desired running state.
+    func toggle(shouldRun: Bool) {
+        if shouldRun { run() } else { pauseAndSave() }
     }
 }

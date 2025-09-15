@@ -6,15 +6,11 @@
 //
 
 import SwiftUI
-import AppIntentsKit
 
 @main
 struct gamified_habit_trackerApp: App {
     let persistenceController = PersistenceController.shared
-    init() {
-        // Wire AppIntents bridge to our controller
-        HabitTimerBridge.controller = TimerIntentController.shared
-    }
+    init() {}
 
     var body: some Scene {
         WindowGroup {

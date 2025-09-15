@@ -31,7 +31,13 @@ final class HabitRowViewModel: ObservableObject {
     // MARK: - Configuration
     func setContext(_ context: NSManagedObjectContext) {
         self.viewContext = context
-        let manager = HabitTimerManager(habit: habit, context: context)
+        // Reuse any existing manager for this habit so intent actions and UI stay in sync
+        let manager: HabitTimerManager
+        if let id = habit.id?.uuidString, let existing = HabitTimerManager.existingManager(for: id) {
+            manager = existing
+        } else {
+            manager = HabitTimerManager(habit: habit, context: context)
+        }
         manager.onTick = { [weak self] elapsed in
             self?.timerElapsedTime = elapsed
         }

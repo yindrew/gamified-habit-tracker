@@ -143,8 +143,6 @@ struct HabitDetailView: View {
         } message: {
             Text("Are you sure you want to delete this habit? This action cannot be undone.")
         }
-        // Non-intrusive tap-away keyboard dismiss overlay
-        .background(KeyboardDismissOverlay())
     }
     
     private var habitHeaderView: some View {

@@ -7,12 +7,21 @@
 
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 @main
 struct timerVisualBundle: WidgetBundle {
+    init() {
+        // Force-load the intent type in the widget extension
+        if #available(iOSApplicationExtension 16.1, *) {
+            _ = ToggleHabitTimerIntent.self
+            print("🎯 Widget Bundle: ToggleHabitTimerIntent loaded")
+        }
+    }
+    
     var body: some Widget {
         timerVisual()
-        timerVisualControl()
+//        timerVisualControl()
         if #available(iOSApplicationExtension 16.1, *) {
             HabitTimerLiveActivity()
         }

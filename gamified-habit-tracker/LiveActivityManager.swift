@@ -25,6 +25,9 @@ public final class LiveActivityManager {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let habitId = attributes.habitId
+        // If resuming from a paused state, cancel any scheduled auto-end
+        pauseTimers[habitId]?.invalidate()
+        pauseTimers.removeValue(forKey: habitId)
 
         if let existing = activities[habitId] {
             Task {
@@ -63,6 +66,7 @@ public final class LiveActivityManager {
     func update(habitId: String, state: TimerContentState) {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
         guard let activity = activities[habitId] else { return }
+        // print("LiveActivity updated for \(habitId)")
         Task {
             if #available(iOS 16.2, *) {
                 await activity.update(ActivityContent(state: state, staleDate: nil))

@@ -2,15 +2,15 @@
 //  TimerIntentController.swift
 //  gamified-habit-tracker
 //
-//  Bridges AppIntentsKit ToggleHabitTimerIntent into the app runtime.
+//  Handles AppIntent timer actions inside the main app.
 //
 
 import Foundation
 import CoreData
-import AppIntentsKit
+// The intent protocol and bridge live in this target now
 
 // Use an actor for thread safety and Sendable conformance
-actor TimerIntentController: HabitTimerControlling {
+actor TimerIntentController {
     static let shared = TimerIntentController()
 
     private let context: NSManagedObjectContext = PersistenceController.shared.container.viewContext
@@ -32,18 +32,11 @@ actor TimerIntentController: HabitTimerControlling {
         guard let habit = habit, habit.isTimerHabit else { return }
 
         // Prepare or reuse a manager for this habit
-        let manager: HabitTimerManager = await managerForHabit(habit)
+        let manager: HabitTimerManager = managerForHabit(habit)
 
         // Dispatch side-effecting UI/timer actions onto main actor
         await MainActor.run {
-            if shouldRun {
-                // If already met goal, resume in overrun; else count toward goal.
-                let totalElapsedMinutesToday = habit.timerMinutesToday
-                let allowOverrun = habit.timerGoalMetToday || (totalElapsedMinutesToday >= habit.goalValue)
-                manager.start(allowOverrun: allowOverrun, initialElapsed: totalElapsedMinutesToday * 60.0)
-            } else {
-                manager.pause(saveProgress: true)
-            }
+            manager.toggle(shouldRun: shouldRun)
         }
     }
 
@@ -59,9 +52,12 @@ actor TimerIntentController: HabitTimerControlling {
     private func managerForHabit(_ habit: Habit) -> HabitTimerManager {
         let key = habit.id?.uuidString ?? ""
         if let existing = managers[key] { return existing }
+        if let existingGlobal = HabitTimerManager.existingManager(for: key) {
+            managers[key] = existingGlobal
+            return existingGlobal
+        }
         let mgr = HabitTimerManager(habit: habit, context: context)
         managers[key] = mgr
         return mgr
     }
 }
-

@@ -211,8 +211,6 @@ struct HabitFormView: View {
             } message: {
                 Text("Please enable notifications in Settings to receive reminders.")
             }
-            // Non-intrusive tap-away keyboard dismiss overlay
-            .background(KeyboardDismissOverlay())
         }
     }
 
