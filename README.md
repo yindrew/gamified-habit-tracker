@@ -3,7 +3,8 @@
 Refactor out the timer logic into its own submodule? or own folder? \
 app logic for streaking isn't working properly, or maybe it only works if the habit is over 3 days long? need to check - ***Tejus***\
 add logic for reseting at midnight so it updates properly \
-how does memory storage work? Closing out of the app loses the data such as flipping from all/today \
+how does memory storage work? \
+Closing out of the app loses the data such as flipping from all/today ***DONE*** \
 displaying timer as long notification. - ***Andrew*** \
 Fix the Habit Detail view for the different habits \
 the habits page shouldn't show completions, but show the actual metric instead. \
