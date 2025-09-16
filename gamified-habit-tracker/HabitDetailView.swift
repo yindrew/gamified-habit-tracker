@@ -51,6 +51,12 @@ struct HabitDetailView: View {
     private var chartData: (points: [ChartDataPoint], label: String) {
         let array = Array(completions)
         let built = ChartDataBuilder.dailyPoints(for: habit, completions: array, days: selectedTimePeriod.days)
+        // For frequency habits, scale counts by metricValue and relabel to metricUnit
+        if !habit.isTimerHabit && !habit.isRoutineHabit {
+            let scaled = built.points.map { ChartDataPoint(date: $0.date, value: $0.value * habit.metricValue) }
+            let unit = (habit.metricUnit?.isEmpty == false) ? habit.metricUnit! : "times"
+            return (scaled, unit)
+        }
         return (built.points, built.yLabel.rawValue)
     }
     
@@ -179,12 +185,110 @@ struct HabitDetailView: View {
     }
     
     private var statisticsCardsView: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
-            StatCard(title: "Total Completions", value: "\(habit.totalCompletions)", color: Color(hex: habit.colorHex ?? "#007AFF"))
-            StatCard(title: "Current Streak", value: "\(habit.currentStreak) days", color: Color(hex: habit.colorHex ?? "#007AFF"))
-            StatCard(title: "Longest Streak", value: "\(habit.longestStreak) days", color: Color(hex: habit.colorHex ?? "#007AFF"))
-            StatCard(title: "This Week", value: "\(completionsThisWeek)", color: Color(hex: habit.colorHex ?? "#007AFF"))
+        let color = Color(hex: habit.colorHex ?? "#007AFF")
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 16) {
+            // Core metrics: times the target was reached
+            StatCard(title: "Targets Met (All Time)", value: "\(targetsMetAllTime)", color: color)
+            StatCard(title: "Targets Met (This Week)", value: "\(targetsMetThisWeek)", color: color)
+            StatCard(title: "Current Streak", value: "\(habit.currentStreak) days", color: color)
+            StatCard(title: "Longest Streak", value: "\(habit.longestStreak) days", color: color)
+
+            // Extra metrics based on habit type
+            if habit.isTimerHabit {
+                StatCard(title: "Total Time Spent", value: formatMinutes(totalTimeSpentAllTime), color: color)
+                StatCard(title: "Time Spent This Week", value: formatMinutes(timeSpentThisWeek), color: color)
+            } else if !habit.isRoutineHabit {
+                // Frequency habits: show metric totals using metricValue/unit
+                let unit = (habit.metricUnit?.isEmpty == false) ? habit.metricUnit! : "times"
+                let allTimeTotal = Double(completions.count) * habit.metricValue
+                let weekTotal = Double(completionsThisWeek) * habit.metricValue
+                StatCard(title: "Completed (All Time)", value: "\(formatMetricTotal(allTimeTotal)) \(unit)", color: color)
+                StatCard(title: "Completed (This Week)", value: "\(formatMetricTotal(weekTotal)) \(unit)", color: color)
+            }
         }
+    }
+
+    // MARK: - Statistics helpers
+    private var targetsMetAllTime: Int {
+        let calendar = Calendar.current
+        // Group completions by day
+        var perDay: [Date: [HabitCompletion]] = [:]
+        for c in completions {
+            guard let dt = c.completedDate else { continue }
+            let key = calendar.startOfDay(for: dt)
+            perDay[key, default: []].append(c)
+        }
+        return perDay.reduce(0) { acc, pair in
+            acc + (isTargetMet(on: pair.key, with: pair.value) ? 1 : 0)
+        }
+    }
+
+    private var targetsMetThisWeek: Int {
+        let calendar = Calendar.current
+        let today = Date()
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        // Group completions by day within this week
+        var perDay: [Date: [HabitCompletion]] = [:]
+        for c in completions {
+            guard let dt = c.completedDate, dt >= weekStart else { continue }
+            let key = calendar.startOfDay(for: dt)
+            perDay[key, default: []].append(c)
+        }
+        return perDay.reduce(0) { acc, pair in
+            acc + (isTargetMet(on: pair.key, with: pair.value) ? 1 : 0)
+        }
+    }
+
+    private func isTargetMet(on day: Date, with dayCompletions: [HabitCompletion]) -> Bool {
+        if habit.isTimerHabit {
+            let minutes = dayCompletions.reduce(0.0) { $0 + $1.timerDuration }
+            return minutes >= habit.goalValue
+        } else if habit.isRoutineHabit {
+            let totalSteps = habit.routineStepsArray.count
+            guard totalSteps > 0 else { return false }
+            var steps = Set<Int>()
+            for c in dayCompletions {
+                if let s = c.completedSteps, !s.isEmpty {
+                    let ints = s.split(separator: ",").compactMap { Int($0) }
+                    steps.formUnion(ints)
+                }
+            }
+            return steps.count >= totalSteps
+        } else {
+            // Frequency: at least targetFrequency completions
+            return dayCompletions.count >= Int(habit.targetFrequency)
+        }
+    }
+
+    private var totalTimeSpentAllTime: Double {
+        guard habit.isTimerHabit else { return 0 }
+        return completions.reduce(0.0) { $0 + $1.timerDuration }
+    }
+
+    private var timeSpentThisWeek: Double {
+        guard habit.isTimerHabit else { return 0 }
+        let calendar = Calendar.current
+        let today = Date()
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        return completions.filter { ($0.completedDate ?? .distantPast) >= weekStart }
+            .reduce(0.0) { $0 + $1.timerDuration }
+    }
+
+    private func formatMinutes(_ minutes: Double) -> String {
+        let totalSeconds = Int((minutes * 60).rounded())
+        let h = totalSeconds / 3600
+        let m = (totalSeconds % 3600) / 60
+        if h > 0 {
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+        }
+        return "\(m)m"
+    }
+
+    private func formatMetricTotal(_ total: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = habit.metricValue.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1
+        return formatter.string(from: NSNumber(value: total)) ?? "0"
     }
     
     private var calendarView: some View {
@@ -257,18 +361,33 @@ struct HabitDetailView: View {
             .pickerStyle(SegmentedPickerStyle())
             
             Chart(chartData.points) { item in
-                BarMark(
+                // Subtle fill under the line
+                AreaMark(
                     x: .value("Date", item.date),
-                    y: .value("Value", item.value)
+                    y: .value(chartData.label, item.value)
+                )
+                .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.12))
+
+                // Line on top
+                LineMark(
+                    x: .value("Date", item.date),
+                    y: .value(chartData.label, item.value)
                 )
                 .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF"))
-                .opacity(item.value > 0 ? 1.0 : 0.3)
+
+                // Less prominent points
+                PointMark(
+                    x: .value("Date", item.date),
+                    y: .value(chartData.label, item.value)
+                )
+                .symbolSize(20)
+                .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.6))
             }
             .frame(height: 200)
             .chartXAxis {
                 AxisMarks(values: getXAxisValues()) { value in
-                    AxisValueLabel(format: getXAxisFormat())
                     AxisGridLine()
+                    AxisValueLabel(format: getXAxisFormat())
                 }
             }
             .chartYAxis {
@@ -388,8 +507,8 @@ struct HabitDetailView: View {
         let daysInMonth = calendar.dateComponents([.day], from: firstOfMonth, to: lastOfMonth).day ?? 0
         for dayOffset in 0...daysInMonth {
             if let date = calendar.date(byAdding: .day, value: dayOffset, to: firstOfMonth) {
-                let completionCount = getCompletionCount(for: date)
-                days.append(CalendarDay(date: date, isInCurrentMonth: true, completionCount: completionCount))
+                let status = getTargetStatusValue(for: date)
+                days.append(CalendarDay(date: date, isInCurrentMonth: true, completionCount: status))
             }
         }
         
@@ -411,11 +530,43 @@ struct HabitDetailView: View {
         let calendar = Calendar.current
         let dayStart = calendar.startOfDay(for: date)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        
+
         return completions.filter { completion in
             guard let completedDate = completion.completedDate else { return false }
             return completedDate >= dayStart && completedDate < dayEnd
         }.count
+    }
+
+    private func getCompletions(for date: Date) -> [HabitCompletion] {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        return completions.filter { c in
+            guard let d = c.completedDate else { return false }
+            return d >= dayStart && d < dayEnd
+        }
+    }
+
+    // 0 = none, 1 = partial, 2 = met
+    private func getTargetStatusValue(for date: Date) -> Int {
+        // Only color scheduled days
+        if !habit.isScheduledForDate(date) { return 0 }
+        let dayComps = getCompletions(for: date)
+        if isTargetMet(on: date, with: dayComps) { return 2 }
+        // Partial if there is some progress but not met
+        if habit.isTimerHabit {
+            let minutes = dayComps.reduce(0.0) { $0 + $1.timerDuration }
+            return minutes > 0 ? 1 : 0
+        } else if habit.isRoutineHabit {
+            let steps = dayComps.reduce(into: Set<Int>()) { acc, c in
+                if let s = c.completedSteps, !s.isEmpty {
+                    s.split(separator: ",").compactMap { Int($0) }.forEach { acc.insert($0) }
+                }
+            }
+            return steps.count > 0 ? 1 : 0
+        } else {
+            return dayComps.count > 0 ? 1 : 0
+        }
     }
     
     private func changeMonth(_ direction: Int) {
@@ -497,7 +648,10 @@ struct CalendarDayView: View {
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(day.completionCount > 0 ? habitColor : Color.clear)
-                .opacity(day.completionCount > 0 ? (day.isInCurrentMonth ? 1.0 : 0.3) : 0.0)
+                .opacity(
+                    day.completionCount == 2 ? 1.0 :
+                    (day.completionCount == 1 ? 0.5 : 0.0)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
