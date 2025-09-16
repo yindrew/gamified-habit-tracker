@@ -23,11 +23,12 @@ struct HabitTimerLiveActivity: Widget {
             // Lock Screen / Notification Center
             let color = Color(hex: context.attributes.colorHex)
             let goal = max(context.attributes.targetGoalSeconds, 1)
-            let elapsed = max(0, context.state.elapsedSeconds)
-            let remaining = max(goal - elapsed, 0)
+            let base = max(0, context.state.baseElapsedSeconds)
+            let start = context.state.sessionStartDate
+            let effectiveStart = start?.addingTimeInterval(TimeInterval(-base))
 
             HStack(alignment: .center, spacing: 12) {
-                // Left content: name + big remaining, then progress bar
+                // Left content: icon + name, then progress bar + times
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         ZStack {
@@ -42,13 +43,27 @@ struct HabitTimerLiveActivity: Widget {
                             .font(.headline)
                             .lineLimit(1)
                         Spacer(minLength: 8)
-                        Text(elapsedVerbose(elapsed))
-                            .monospacedDigit()
-                            .font(.title3)
                     }
-                    LinearRemainingBar(elapsed: elapsed, goal: goal, color: color)
-                        .accessibilityLabel("Elapsed time")
-                        .accessibilityValue(elapsedVerbose(elapsed))
+                    if let s = effectiveStart {
+                        let end = s.addingTimeInterval(TimeInterval(goal))
+                        ProgressView(timerInterval: s...end, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                            .progressViewStyle(.linear)
+                            .tint(color)
+                            .accessibilityLabel("Elapsed time")
+                    } else {
+                        ProgressView(value: min(Double(base), Double(goal)), total: Double(goal))
+                            .progressViewStyle(.linear)
+                            .tint(color)
+                            .accessibilityLabel("Elapsed time")
+                    }
+                    HStack(spacing: 10) {
+                        // Elapsed on the left under the bar
+                        displayNumericTime(base: base, goal: goal, effectiveStart: effectiveStart)
+                            .font(.caption)
+                            .monospacedDigit()
+                            .numericTextTransition()
+                        Spacer(minLength: 0)
+                    }
                 }
                 // Right content: large play/pause button occupying right side
                 VStack {
@@ -65,15 +80,16 @@ struct HabitTimerLiveActivity: Widget {
             DynamicIsland {
                 let color = Color(hex: context.attributes.colorHex)
                 let goal = max(context.attributes.targetGoalSeconds, 1)
-                let elapsed = max(0, context.state.elapsedSeconds)
-                let progress = Double(min(elapsed, goal)) / Double(goal)
+                let base = max(0, context.state.baseElapsedSeconds)
+                let start = context.state.sessionStartDate
+                let effectiveStart = start?.addingTimeInterval(TimeInterval(-base))
                 let isRunning = context.state.isRunning
 
                 DynamicIslandExpandedRegion(.leading) {}
                 DynamicIslandExpandedRegion(.trailing) {}
                 DynamicIslandExpandedRegion(.center) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
                             Label {
                                 Text(context.attributes.name)
                                     .font(.headline)
@@ -82,39 +98,75 @@ struct HabitTimerLiveActivity: Widget {
                                     .foregroundColor(Color(hex: context.attributes.colorHex))
                             }
                             Spacer()
-                            Text(elapsedVerbose(elapsed))
-                                .monospacedDigit()
-                                .font(.headline)
                         }
-                        ProgressView(value: progress)
-                            .tint(color)
-                        HStack {
-                            Spacer()
+                        // Progress + action button on the right
+                        HStack(spacing: 8) {
+                            if let s = effectiveStart {
+                                let end = s.addingTimeInterval(TimeInterval(goal))
+                                ProgressView(timerInterval: s...end, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                                    .progressViewStyle(.linear)
+                                    .tint(color)
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                ProgressView(value: min(Double(base), Double(goal)), total: Double(goal))
+                                    .progressViewStyle(.linear)
+                                    .tint(color)
+                                    .frame(maxWidth: .infinity)
+                            }
                             Button(intent: ToggleHabitTimerIntent(habitId: context.attributes.habitId, shouldRun: !isRunning)) {
                                 Image(systemName: isRunning ? "pause.fill" : "play.fill")
                                     .font(.title3)
                                     .foregroundColor(color)
-                                    .padding(8)
+                                    .padding(6)
                             }
                             .buttonStyle(FlashCircleBackgroundStyle(color: color))
-                            Spacer()
+                        }
+                        // Elapsed time under the bar
+                        HStack(spacing: 8) {
+                            displayNumericTime(base: base, goal: goal, effectiveStart: effectiveStart)
+                                .font(.caption)
+                                .monospacedDigit()
+                                .numericTextTransition()
+                            Spacer(minLength: 0)
                         }
                     }
                     .padding(.horizontal)
                 }
                 DynamicIslandExpandedRegion(.bottom) { }
             } compactLeading: {
-                HStack(spacing: 12) {
+                // Keep compactLeading minimal to free width for trailing time
+                let color = Color(hex: context.attributes.colorHex)
+                HStack(spacing: 8) {
                     Image(systemName: context.attributes.icon)
-                        .foregroundColor(Color(hex: context.attributes.colorHex))
+                        .foregroundColor(color)
+                        .imageScale(.small)
                     Text(context.attributes.name)
                 }
-                
             } compactTrailing: {
+                let color = Color(hex: context.attributes.colorHex)
+                let base = max(0, context.state.baseElapsedSeconds)
+                let start = context.state.sessionStartDate
                 let goal = max(context.attributes.targetGoalSeconds, 1)
-                let elapsed = max(0, context.state.elapsedSeconds)
-                Text(elapsedVerbose(elapsed))
-                    .monospacedDigit()
+                let effectiveStart = start?.addingTimeInterval(TimeInterval(-base))
+                ZStack {
+                    Circle()
+                        .stroke(color.opacity(0.2), lineWidth: 3)
+                    if let s = effectiveStart {
+                        // Live, increasing fill as time progresses
+                        let end = s.addingTimeInterval(TimeInterval(goal))
+                        ProgressView(timerInterval: s...end, countsDown: false, label: {EmptyView()}, currentValueLabel: {EmptyView()})
+                            .progressViewStyle(.circular)
+                            .tint(color)
+                            .labelsHidden()
+                    } else {
+                        // Paused: static snapshot of elapsed fraction
+                        ProgressView(value: min(Double(base), Double(goal)), total: Double(goal))
+                            .progressViewStyle(.circular)
+                            .tint(color)
+                            .labelsHidden()
+                    }
+                }
+                .frame(width: 18, height: 18)
             } minimal: {
                 Image(systemName: context.attributes.icon)
                     .foregroundColor(Color(hex: context.attributes.colorHex))
@@ -188,6 +240,30 @@ private struct FlashCircleBackgroundStyle: ButtonStyle {
 }
 
 
+@available(iOS 16.1, *)
+private func displayNumericTime(base: Int, goal: Int, effectiveStart: Date?) -> Text {
+    if let s = effectiveStart {
+        // Running: show elapsed within the session window, updates live until goal
+        let end = s.addingTimeInterval(TimeInterval(goal))
+        return Text(timerInterval: s...end, countsDown: false)
+    } else {
+        // Paused: static snapshot of elapsed time
+        return Text(elapsedString(base))
+    }
+}
+
+// MARK: - Helpers
+@available(iOS 16.1, *)
+private extension View {
+    @ViewBuilder
+    func numericTextTransition() -> some View {
+        if #available(iOS 17.0, *) {
+            self.contentTransition(.numericText())
+        } else {
+            self
+        }
+    }
+}
 
 @available(iOS 16.1, *)
 private func elapsedString(_ secs: Int) -> String {
@@ -279,9 +355,9 @@ struct HabitTimerLiveActivity_Previews: PreviewProvider {
             name: "Focus",
             icon: "timer",
             colorHex: "#007AFF",
-            targetGoalSeconds: 1800
+            targetGoalSeconds: 4000
         )
-        let content = TimerContentState(elapsedSeconds: 125, isRunning: true, isFinished: false)
+        let content = TimerContentState(baseElapsedSeconds: 1300, sessionStartDate: Date(), isRunning: true, isFinished: false)
         return attributes.previewContext(content, viewKind: .content)
     }
 }

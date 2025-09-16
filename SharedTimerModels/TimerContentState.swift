@@ -9,15 +9,18 @@ import Foundation
 
 @available(iOS 16.1, *)
 public struct TimerContentState: Codable, Hashable {
-    // Elapsed time in seconds (monotonic within the current activity session)
-    public var elapsedSeconds: Int
+    // Baseline elapsed seconds accumulated prior to current session
+    public var baseElapsedSeconds: Int
+    // Start date of the current running session (nil when paused)
+    public var sessionStartDate: Date?
 
     // Flags to render running/paused/finished UI states
     public var isRunning: Bool
     public var isFinished: Bool
 
-    public init(elapsedSeconds: Int, isRunning: Bool, isFinished: Bool) {
-        self.elapsedSeconds = elapsedSeconds
+    public init(baseElapsedSeconds: Int, sessionStartDate: Date?, isRunning: Bool, isFinished: Bool) {
+        self.baseElapsedSeconds = baseElapsedSeconds
+        self.sessionStartDate = sessionStartDate
         self.isRunning = isRunning
         self.isFinished = isFinished
     }
