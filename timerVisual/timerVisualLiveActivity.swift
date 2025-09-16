@@ -243,9 +243,15 @@ private struct FlashCircleBackgroundStyle: ButtonStyle {
 @available(iOS 16.1, *)
 private func displayNumericTime(base: Int, goal: Int, effectiveStart: Date?) -> Text {
     if let s = effectiveStart {
-        // Running: show elapsed within the session window, updates live until goal
+        // Running
         let end = s.addingTimeInterval(TimeInterval(goal))
-        return Text(timerInterval: s...end, countsDown: false)
+        if Date() >= end {
+            // Overflow: already past goal — keep incrementing indefinitely
+            return Text(timerInterval: s...Date.distantFuture, countsDown: false)
+        } else {
+            // Under goal: live elapsed until goal
+            return Text(timerInterval: s...end, countsDown: false)
+        }
     } else {
         // Paused: static snapshot of elapsed time
         return Text(elapsedString(base))
