@@ -69,7 +69,8 @@ final class HabitTimerManager {
         // Start/refresh Live Activity for this habit
         if let attrs = buildAttributes() {
             let state = TimerContentState(
-                elapsedSeconds: Int(initialElapsed),
+                baseElapsedSeconds: Int(initialElapsed),
+                sessionStartDate: Date(),
                 isRunning: true,
                 isFinished: false
             )
@@ -88,7 +89,8 @@ final class HabitTimerManager {
                 // Send finished state and end activity
                 if let habitId = self.habit.id?.uuidString {
                     let finishedState = TimerContentState(
-                        elapsedSeconds: Int(self.baseElapsedAtStart + self.elapsedTime),
+                        baseElapsedSeconds: Int(self.baseElapsedAtStart + self.elapsedTime),
+                        sessionStartDate: nil,
                         isRunning: false,
                         isFinished: true
                     )
@@ -99,15 +101,7 @@ final class HabitTimerManager {
                 return
             }
 
-            // Live Activity periodic update
-            if let habitId = self.habit.id?.uuidString {
-                let state = TimerContentState(
-                    elapsedSeconds: Int(self.baseElapsedAtStart + self.elapsedTime),
-                    isRunning: true,
-                    isFinished: false
-                )
-                LiveActivityManager.shared.update(habitId: habitId, state: state)
-            }
+            // No periodic Live Activity updates; the widget view uses timerInterval for smooth updates
         }
     }
 
@@ -131,7 +125,8 @@ final class HabitTimerManager {
         // Send paused state and keep the activity visible (auto-ends later)
         if let habitId = habit.id?.uuidString {
             let state = TimerContentState(
-                elapsedSeconds: Int(baseElapsedAtStart + elapsedTime),
+                baseElapsedSeconds: Int(baseElapsedAtStart + elapsedTime),
+                sessionStartDate: nil,
                 isRunning: false,
                 isFinished: false
             )
