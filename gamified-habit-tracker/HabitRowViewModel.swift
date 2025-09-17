@@ -75,6 +75,8 @@ final class HabitRowViewModel: ObservableObject {
             let totalMinutes = habit.timerMinutesToday + (timerElapsedTime / 60.0)
             let goal = max(habit.goalValue, 0.000001)
             return min(totalMinutes / goal, 1.0)
+        } else if habit.isEtherealHabit {
+            return habit.goalMetToday ? 1.0 : 0.0
         } else if habit.isScheduledToday {
             return habit.progressPercentage
         } else {
@@ -87,6 +89,8 @@ final class HabitRowViewModel: ObservableObject {
             return habit.updatedGoalMetToday
         } else if habit.isTimerHabit {
             return habit.timerGoalMetToday
+        } else if habit.isEtherealHabit {
+            return habit.goalMetToday
         } else if habit.isScheduledToday {
             return habit.goalMetToday
         } else {
@@ -174,6 +178,8 @@ final class HabitRowViewModel: ObservableObject {
         if habit.isTimerHabit {
             // Always show stopwatch style that counts up; persists across pauses.
             return elapsedDisplay
+        } else if habit.isEtherealHabit {
+            return habit.currentProgressString
         } else if habit.isScheduledToday {
             return habit.currentProgressString
         } else {
@@ -215,6 +221,9 @@ final class HabitRowViewModel: ObservableObject {
         habit.lastCompletedDate = Date()
         updateStreak()
 
+        if habit.isEtherealHabit {
+            habit.isActive = false
+        }
         do {
             try context.save()
             HabitWidgetExporter.shared.scheduleSync(using: context)

@@ -66,12 +66,14 @@ struct HabitFormView: View {
         case frequency = "frequency"
         case routine = "routine"
         case timer = "timer"
+        case ethereal = "ethereal"
         
         var displayName: String {
             switch self {
             case .frequency: return "Frequency"
             case .routine: return "Routine"
             case .timer: return "Timer"
+            case .ethereal: return "Quick Task"
             }
         }
         
@@ -80,6 +82,7 @@ struct HabitFormView: View {
             case .frequency: return "Track how many times you do an action"
             case .routine: return "Complete a sequence of steps in order"
             case .timer: return "Track time spent on an activity"
+            case .ethereal: return "Complete once and archive automatically"
             }
         }
         
@@ -88,8 +91,12 @@ struct HabitFormView: View {
             case .frequency: return "number"
             case .routine: return "checklist"
             case .timer: return "timer"
+            case .ethereal: return "sparkles"
             }
         }
+        
+        static var selectableCases: [HabitType] { [.frequency, .routine, .timer] }
+        var isSelectable: Bool { HabitType.selectableCases.contains(self) }
     }
 
     // Preview-safe detection to avoid system interactions in Xcode canvas
@@ -173,7 +180,7 @@ struct HabitFormView: View {
     }
     
     private var navigationTitle: String {
-        isEditing ? "Edit Habit" : "New Habit"
+        isEditing ? "Edit Item" : "New Item"
     }
     
     private var saveButtonText: String {
@@ -185,9 +192,11 @@ struct HabitFormView: View {
             Form {
                 habitDetailsSection
                 customizationSection
-                scheduleSection
-                notificationsSection
-                copingPlanSection
+                if habitType != .ethereal {
+                    scheduleSection
+                    notificationsSection
+                    copingPlanSection
+                }
                 goalSection
             }
             // Dismiss keyboard on scroll/tap away
@@ -449,51 +458,60 @@ struct HabitFormView: View {
     
     private var goalSection: some View {
         Section(header: Text("Goal & Metrics")) {
-            // Habit Type Selection
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Habit Type")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                HStack(spacing: 12) {
-                    ForEach(HabitType.allCases, id: \.self) { type in
-                        Button(action: {
-                            habitType = type
-                            if type == .routine && routineSteps.isEmpty {
-                                routineSteps = [""]
+            if habitType.isSelectable {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Habit Type")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    HStack(spacing: 12) {
+                        ForEach(HabitType.selectableCases, id: \.self) { type in
+                            Button(action: {
+                                habitType = type
+                                if type == .routine && routineSteps.isEmpty {
+                                    routineSteps = [""]
+                                }
+                            }) {
+                                VStack(spacing: 8) {
+                                    Image(systemName: type.icon)
+                                        .font(.title2)
+                                        .foregroundColor(habitType == type ? .white : selectedColor)
+                                    
+                                    Text(type.displayName)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(habitType == type ? .white : .primary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(habitType == type ? selectedColor : selectedColor.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
-                        }) {
-                            VStack(spacing: 8) {
-                                Image(systemName: type.icon)
-                                    .font(.title2)
-                                    .foregroundColor(habitType == type ? .white : selectedColor)
-                                
-                                Text(type.displayName)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(habitType == type ? .white : .primary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(habitType == type ? selectedColor : selectedColor.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
+                    
+                    Text(habitType.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
-                Text(habitType.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            // Show appropriate content based on habit type
-            if habitType == .frequency {
-                frequencyContent
-            } else if habitType == .routine {
-                routineContent
+                if habitType == .frequency {
+                    frequencyContent
+                } else if habitType == .routine {
+                    routineContent
+                } else {
+                    timerContent
+                }
             } else {
-                timerContent
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("A one-off Task")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text("Complete this task once. When you mark it done, it disappears from your list.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
@@ -692,20 +710,32 @@ struct HabitFormView: View {
         newHabit.icon = selectedIcon
         newHabit.colorHex = selectedColor.toHex()
         newHabit.targetFrequency = Int32(ceil(goalValue / metricValue))
+        if habitType == .ethereal {
+            newHabit.targetFrequency = 1
+        }
         newHabit.currentStreak = 0
         newHabit.longestStreak = 0
         newHabit.totalCompletions = 0
         newHabit.createdDate = Date()
         newHabit.lastCompletedDate = nil
         newHabit.isActive = true
-        newHabit.notificationsEnabled = notificationsEnabled
-        newHabit.notificationTime = notificationTime
+        if habitType == .ethereal {
+            newHabit.notificationsEnabled = false
+            newHabit.notificationTime = nil
+        } else {
+            newHabit.notificationsEnabled = notificationsEnabled
+            newHabit.notificationTime = notificationTime
+        }
         
         // Set metrics (different for timer habits)
         if habitType == .timer {
             newHabit.metricValue = 1.0
             newHabit.metricUnit = "minutes"
             newHabit.goalValue = timerDurationSeconds / 60.0
+        } else if habitType == .ethereal {
+            newHabit.metricValue = 1.0
+            newHabit.metricUnit = "task"
+            newHabit.goalValue = 1.0
         } else {
             newHabit.metricValue = metricValue
             newHabit.metricUnit = metricUnit
@@ -713,8 +743,13 @@ struct HabitFormView: View {
         }
         
         // Set scheduling
-        newHabit.schedule = selectedSchedule
-        setScheduleValues(for: newHabit)
+        if habitType == .ethereal {
+            newHabit.schedule = .daily
+            newHabit.scheduleValue = 0
+        } else {
+            newHabit.schedule = selectedSchedule
+            setScheduleValues(for: newHabit)
+        }
         
         // Set coping plan
         let trimmedCopingPlan = copingPlan.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -746,14 +781,26 @@ struct HabitFormView: View {
         habit.icon = selectedIcon
         habit.colorHex = selectedColor.toHex()
         habit.targetFrequency = Int32(ceil(goalValue / metricValue))
-        habit.notificationsEnabled = notificationsEnabled
-        habit.notificationTime = notificationTime
+        if habitType == .ethereal {
+            habit.targetFrequency = 1
+        }
+        if habitType == .ethereal {
+            habit.notificationsEnabled = false
+            habit.notificationTime = nil
+        } else {
+            habit.notificationsEnabled = notificationsEnabled
+            habit.notificationTime = notificationTime
+        }
         
         // Set metrics (different for timer habits)
         if habitType == .timer {
             habit.metricValue = 1.0
             habit.metricUnit = "minutes"
             habit.goalValue = timerDurationSeconds / 60.0
+        } else if habitType == .ethereal {
+            habit.metricValue = 1.0
+            habit.metricUnit = "task"
+            habit.goalValue = 1.0
         } else {
             habit.metricValue = metricValue
             habit.metricUnit = metricUnit
@@ -761,8 +808,13 @@ struct HabitFormView: View {
         }
         
         // Set scheduling
-        habit.schedule = selectedSchedule
-        setScheduleValues(for: habit)
+        if habitType == .ethereal {
+            habit.schedule = .daily
+            habit.scheduleValue = 0
+        } else {
+            habit.schedule = selectedSchedule
+            setScheduleValues(for: habit)
+        }
         
         // Set coping plan
         let trimmedCopingPlan = copingPlan.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -106,17 +106,21 @@ struct HabitDetailView: View {
             VStack(spacing: 24) {
                 // Header with habit info
                 habitHeaderView
-                
-                // Statistics cards
-                statisticsCardsView
-                
-                // Calendar view
-                calendarView
-                
-                // Progress chart
-                if #available(iOS 16.0, *) {
-                    progressChartView
+                if (habit.habitType != "ethereal"){
+                    // Statistics cards
+                    statisticsCardsView
+                    
+                    // Calendar view
+                    calendarView
+                    
+                    // Progress chart
+                    if #available(iOS 16.0, *) {
+                        progressChartView
+                    }
                 }
+
+                
+
             
             }
             .padding()
@@ -126,11 +130,11 @@ struct HabitDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button("Edit Habit") {
+                    Button("Edit Item") {
                         showingEditHabit = true
                     }
                     
-                    Button("Delete Habit", role: .destructive) {
+                    Button("Delete Item", role: .destructive) {
                         showingDeleteAlert = true
                     }
                 } label: {
