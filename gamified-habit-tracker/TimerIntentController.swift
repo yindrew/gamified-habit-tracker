@@ -38,6 +38,7 @@ actor TimerIntentController {
         await MainActor.run {
             manager.toggle(shouldRun: shouldRun)
         }
+        HabitWidgetExporter.shared.scheduleSync(using: context)
     }
 
     // MARK: - Helpers

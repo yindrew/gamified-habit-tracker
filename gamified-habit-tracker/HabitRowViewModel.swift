@@ -217,6 +217,7 @@ final class HabitRowViewModel: ObservableObject {
 
         do {
             try context.save()
+            HabitWidgetExporter.shared.scheduleSync(using: context)
         } catch {
             let nsError = error as NSError
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
@@ -233,6 +234,7 @@ final class HabitRowViewModel: ObservableObject {
 
         do {
             try context.save()
+            HabitWidgetExporter.shared.scheduleSync(using: context)
         } catch {
             let nsError = error as NSError
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
@@ -255,6 +257,7 @@ final class HabitRowViewModel: ObservableObject {
 
         do {
             try context.save()
+            HabitWidgetExporter.shared.scheduleSync(using: context)
         } catch {
             let nsError = error as NSError
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
@@ -265,7 +268,10 @@ final class HabitRowViewModel: ObservableObject {
             habit.totalCompletions += 1
             habit.lastCompletedDate = Date()
             updateStreak()
-            do { try context.save() } catch {
+            do {
+                try context.save()
+                HabitWidgetExporter.shared.scheduleSync(using: context)
+            } catch {
                 let nsError = error as NSError
                 fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
             }
