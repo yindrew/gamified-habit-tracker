@@ -106,7 +106,7 @@ struct HabitDetailView: View {
             VStack(spacing: 24) {
                 // Header with habit info
                 habitHeaderView
-                if (habit.habitType != "ethereal"){
+                if !habit.isEtherealHabit {
                     // Statistics cards
                     statisticsCardsView
                     
@@ -119,7 +119,7 @@ struct HabitDetailView: View {
                     }
                 }
 
-                
+                journalLogSection
 
             
             }
@@ -407,6 +407,177 @@ struct HabitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
+    private var journalLogSection: some View {
+        Group {
+            if journalEntries.isEmpty {
+                journalEmptyState
+            } else if #available(iOS 16.0, *) {
+                journalSectionModern
+            } else {
+                journalSectionFallback
+            }
+        }
+    }
+
+    private var journalEntries: [HabitCompletion] {
+        completions.compactMap { entry in
+            let hasMood = entry.moodScore > 0
+            let note = entry.notes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let hasNote = !note.isEmpty
+            return (hasMood || hasNote) ? entry : nil
+        }
+        .sorted { (lhs, rhs) in
+            (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
+        }
+    }
+
+    private var limitedJournalEntries: [HabitCompletion] {
+        Array(journalEntries.prefix(10))
+    }
+
+    private var moodDataPoints: [MoodChartDataPoint] {
+        journalEntries.compactMap { entry in
+            guard entry.moodScore > 0, let date = entry.completedDate else { return nil }
+            return MoodChartDataPoint(date: date, mood: Int(entry.moodScore))
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    private var journalEntriesList: some View {
+        VStack(spacing: 12) {
+            let entries = limitedJournalEntries
+            ForEach(Array(entries.enumerated()), id: \.element.objectID) { index, entry in
+                journalRow(for: entry)
+                if index < entries.count - 1 {
+                    Divider()
+                }
+            }
+        }
+    }
+
+    private var journalEmptyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Reflections")
+                    .font(.headline)
+                Spacer()
+            }
+            Text("Complete the habit and add a journal entry to build a history of how the habit felt day to day.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    @available(iOS 16.0, *)
+    private var journalSectionModern: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Reflections")
+                    .font(.headline)
+                Spacer()
+            }
+
+            if !moodDataPoints.isEmpty {
+                Chart(moodDataPoints) { point in
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        y: .value("Mood", point.mood)
+                    )
+                    .foregroundStyle(point.color.opacity(0.15))
+
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Mood", point.mood)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(point.color)
+
+                    PointMark(
+                        x: .value("Date", point.date),
+                        y: .value("Mood", point.mood)
+                    )
+                    .symbolSize(40)
+                    .foregroundStyle(point.color)
+                }
+                .chartYScale(domain: 1...5)
+                .chartYAxis {
+                    AxisMarks(values: [1, 2, 3, 4, 5]) { value in
+                        AxisGridLine()
+                        AxisValueLabel(centered: true) {
+                            if let moodScore = value.as(Int.self) {
+                                Circle()
+                                    .fill(MoodPalette.color(for: moodScore))
+                                    .frame(width: 12, height: 12)
+                                    .accessibilityLabel(Text(MoodPalette.label(for: moodScore)))
+                            }
+                        }
+                    }
+                }
+                .chartYAxisLabel("Mood", position: .leading)
+                .chartLegend(.hidden)
+                .frame(height: 160)
+            }
+
+            journalEntriesList
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var journalSectionFallback: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Reflections")
+                    .font(.headline)
+                Spacer()
+            }
+            journalEntriesList
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func journalRow(for entry: HabitCompletion) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                if let date = entry.completedDate {
+                    Text(dateFormatter.string(from: date))
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                let moodValue = max(1, min(5, Int(entry.moodScore)))
+                if entry.moodScore > 0 {
+                    Circle()
+                        .fill(MoodPalette.color(for: moodValue))
+                        .frame(width: 14, height: 14)
+                        .overlay(
+                            Circle().stroke(Color.primary.opacity(0.25), lineWidth: 1)
+                        )
+                        .accessibilityLabel(Text("Mood \(moodValue)"))
+                }
+            }
+
+            if let note = entry.notes, !note.isEmpty {
+                Text(note)
+                    .font(.body)
+                    .foregroundColor(.primary)
+            }
+        }
+    }
+
+    private struct MoodChartDataPoint: Identifiable {
+        let id = UUID()
+        let date: Date
+        let mood: Int
+        var color: Color { MoodPalette.color(for: mood) }
+    }
+
     @available(iOS 16.0, *)
     private func getXAxisValues() -> [Date] {
         let calendar = Calendar.current

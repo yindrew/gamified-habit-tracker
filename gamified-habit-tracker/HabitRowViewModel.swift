@@ -19,13 +19,18 @@ final class HabitRowViewModel: ObservableObject {
     @Published var isTimerRunning: Bool = false
     @Published var isRoutineExpanded: Bool = false
     @Published var didAutoStopAtGoal: Bool = false
+    @Published var pendingJournalEntry: HabitCompletion?
 
     // MARK: - Private runtime state
     private var timerManager: HabitTimerManager?
     private var viewContext: NSManagedObjectContext?
+    private var lastJournaledCompletionID: NSManagedObjectID?
 
     init(habit: Habit) {
         self.habit = habit
+        if let set = habit.completions as? Set<HabitCompletion> {
+            self.lastJournaledCompletionID = set.sorted { ($0.completedDate ?? .distantPast) > ($1.completedDate ?? .distantPast) }.first?.objectID
+        }
     }
 
     // MARK: - Configuration
@@ -45,9 +50,13 @@ final class HabitRowViewModel: ObservableObject {
             self?.isTimerRunning = running
         }
         manager.onAutoStop = { [weak self] in
-            self?.didAutoStopAtGoal = true
+            guard let self else { return }
+            self.didAutoStopAtGoal = true
+            _ = self.captureCompletionIfNeeded(newCompletion: self.latestCompletion())
         }
         self.timerManager = manager
+        self.lastJournaledCompletionID = self.latestCompletion()?.objectID
+        self.pendingJournalEntry = nil
     }
 
     // MARK: - Derived Values
@@ -174,6 +183,11 @@ final class HabitRowViewModel: ObservableObject {
         }
     }
 
+    var hasAnyCompletion: Bool {
+        guard let set = habit.completions as? Set<HabitCompletion> else { return false }
+        return !set.isEmpty
+    }
+
     var progressText: String {
         if habit.isTimerHabit {
             // Always show stopwatch style that counts up; persists across pauses.
@@ -200,14 +214,18 @@ final class HabitRowViewModel: ObservableObject {
         timerManager?.start(allowOverrun: allowOverrun, initialElapsed: totalElapsedSecondsToday)
     }
 
-    func pauseTimer(saveProgress: Bool) {
+    @discardableResult
+    func pauseTimer(saveProgress: Bool) -> HabitCompletion? {
         timerManager?.pause(saveProgress: saveProgress)
+        let triggered = captureCompletionIfNeeded(newCompletion: latestCompletion())
+        return triggered ? pendingJournalEntry : nil
     }
 
     // Timer persistence handled by HabitTimerManager
 
-    func completeHabit() {
-        guard let context = viewContext else { return }
+    @discardableResult
+    func completeHabit() -> HabitCompletion? {
+        guard let context = viewContext else { return nil }
 
         let impactFeedback = UIImpactFeedbackGenerator(style: .heavy)
         impactFeedback.impactOccurred()
@@ -231,6 +249,15 @@ final class HabitRowViewModel: ObservableObject {
             let nsError = error as NSError
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
         }
+        _ = captureCompletionIfNeeded(newCompletion: completion)
+        return completion
+    }
+
+
+    func prepareAdditionalReflection() -> HabitCompletion? {
+        let entry = latestCompletion()
+        pendingJournalEntry = entry
+        return entry
     }
 
     func completeCopingPlan() {
@@ -256,8 +283,6 @@ final class HabitRowViewModel: ObservableObject {
         let impactFeedback = UIImpactFeedbackGenerator(style: .light)
         impactFeedback.impactOccurred()
 
-        let wasFullyCompleted = habit.updatedGoalMetToday
-
         let completion = HabitCompletion(context: context)
         completion.id = UUID()
         completion.completedDate = Date()
@@ -273,7 +298,7 @@ final class HabitRowViewModel: ObservableObject {
         }
 
         let isNowFullyCompleted = habit.updatedGoalMetToday
-        if !wasFullyCompleted && isNowFullyCompleted {
+        if !habit.isEtherealHabit && isNowFullyCompleted {
             habit.totalCompletions += 1
             habit.lastCompletedDate = Date()
             updateStreak()
@@ -285,9 +310,38 @@ final class HabitRowViewModel: ObservableObject {
                 fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
             }
         }
+        _ = captureCompletionIfNeeded(newCompletion: completion)
     }
 
     // MARK: - Helpers
+
+    @discardableResult
+    private func captureCompletionIfNeeded(newCompletion: HabitCompletion?) -> Bool {
+        guard !habit.isEtherealHabit else { return false }
+        guard shouldPromptForJournal else { return false }
+        let entry = newCompletion ?? latestCompletion()
+        guard let entry else { return false }
+        if let lastID = lastJournaledCompletionID, lastID == entry.objectID {
+            return false
+        }
+        pendingJournalEntry = entry
+        lastJournaledCompletionID = entry.objectID
+        return true
+    }
+
+    private func latestCompletion() -> HabitCompletion? {
+        guard let set = habit.completions as? Set<HabitCompletion>, !set.isEmpty else { return nil }
+        return set.sorted { (lhs, rhs) in
+            (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
+        }.first
+    }
+
+    private var shouldPromptForJournal: Bool {
+        if habit.isTimerHabit { return habit.timerGoalMetToday }
+        if habit.isRoutineHabit { return habit.updatedGoalMetToday }
+        return true
+    }
+
     private func updateStreak() {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
