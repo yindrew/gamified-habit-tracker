@@ -59,7 +59,87 @@ struct HabitDetailView: View {
         }
         return (built.points, built.yLabel.rawValue)
     }
-    
+
+    private var timePeriodStartDate: Date? {
+        guard let days = selectedTimePeriod.days, days > 0 else { return nil }
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -(days - 1), to: todayStart)
+    }
+
+    private var chartTimeBounds: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let endOfToday = calendar.date(byAdding: .day, value: 1, to: todayStart)?.addingTimeInterval(-1) ?? todayStart
+
+        if let days = selectedTimePeriod.days, days > 0 {
+            let start = calendar.date(byAdding: .day, value: -(days - 1), to: todayStart) ?? todayStart
+            return start...endOfToday
+        }
+
+        let earliestPoint = chartData.points.first?.date ?? (habit.createdDate ?? todayStart)
+        let start = calendar.startOfDay(for: earliestPoint)
+        return start...endOfToday
+    }
+
+    private var habitDataStartDate: Date {
+        let calendar = Calendar.current
+        let created = habit.createdDate.map { calendar.startOfDay(for: $0) }
+        let earliestCompletion = completions.compactMap { $0.completedDate }.min().map { calendar.startOfDay(for: $0) }
+        return [created, earliestCompletion].compactMap { $0 }.min() ?? chartTimeBounds.lowerBound
+    }
+
+    private var progressPointsInWindow: [ChartDataPoint] {
+        chartData.points.filter { $0.date >= chartTimeBounds.lowerBound && $0.date <= chartTimeBounds.upperBound }
+    }
+
+    private var progressDisplayPoints: [ChartDataPoint] {
+        let displayStart = max(chartTimeBounds.lowerBound, habitDataStartDate)
+        return chartData.points.filter { $0.date >= displayStart }
+    }
+
+    private var progressNoDataSegments: [NoDataSegment] {
+        let calendar = Calendar.current
+        let start = chartTimeBounds.lowerBound
+        let end = chartTimeBounds.upperBound
+        guard progressPointsInWindow.contains(where: { $0.value > 0 }) else {
+            return [NoDataSegment(start: start, end: end)]
+        }
+        let dataStart = max(start, habitDataStartDate)
+        guard dataStart > start else { return [] }
+        let adjustedEnd = min(end, calendar.date(byAdding: .second, value: -1, to: dataStart) ?? dataStart)
+        guard adjustedEnd > start else { return [] }
+        return [NoDataSegment(start: start, end: adjustedEnd)]
+    }
+
+    private var moodNoDataSegments: [NoDataSegment] {
+        let calendar = Calendar.current
+        let start = chartTimeBounds.lowerBound
+        let end = chartTimeBounds.upperBound
+        guard let firstMoodDate = moodDataPoints.first?.date else {
+            return [NoDataSegment(start: start, end: end)]
+        }
+        var segments: [NoDataSegment] = []
+        let firstMoodDayStart = calendar.startOfDay(for: firstMoodDate)
+        let dataStart = max(start, firstMoodDayStart)
+        if dataStart > start {
+            let adjustedEnd = min(end, calendar.date(byAdding: .second, value: -1, to: dataStart) ?? dataStart)
+            if adjustedEnd > start {
+                segments.append(NoDataSegment(start: start, end: adjustedEnd))
+            }
+        }
+
+        if let lastMoodDate = moodDataPoints.last?.date {
+            let nextDayStart = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: lastMoodDate)) ?? lastMoodDate
+            let segmentStart = max(start, nextDayStart)
+            if segmentStart < end {
+                segments.append(NoDataSegment(start: segmentStart, end: end))
+            }
+        }
+
+        return segments
+    }
+
     private var streakData: [StreakPeriod] {
         let calendar = Calendar.current
         var streaks: [StreakPeriod] = []
@@ -113,16 +193,17 @@ struct HabitDetailView: View {
                     // Calendar view
                     calendarView
                     
+                    // Shared time filter
+                    timePeriodPickerView
+                    
                     // Progress chart
                     if #available(iOS 16.0, *) {
                         progressChartView
                     }
                 }
-
+                
                 reflectionsChartSection
                 reflectionsLogSection
-
-            
             }
             .padding()
         }
@@ -295,7 +376,7 @@ struct HabitDetailView: View {
         formatter.maximumFractionDigits = habit.metricValue.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1
         return formatter.string(from: NSNumber(value: total)) ?? "0"
     }
-    
+
     private var calendarView: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Month navigation header
@@ -350,51 +431,44 @@ struct HabitDetailView: View {
     
     @available(iOS 16.0, *)
     private var progressChartView: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let chartColor = Color(hex: habit.colorHex ?? "#007AFF")
+        let bounds = chartTimeBounds
+        let noDataSegments = progressNoDataSegments
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Progress Chart")
                     .font(.headline)
                 Spacer()
             }
-            
-            // Time period selector
-            Picker("Time Period", selection: $selectedTimePeriod) {
-                ForEach(TimePeriod.allCases, id: \.self) { period in
-                    Text(period.rawValue).tag(period)
+
+            Chart {
+                ForEach(progressDisplayPoints) { item in
+                    // Subtle fill under the line
+                    AreaMark(
+                        x: .value("Date", item.date),
+                        y: .value(chartData.label, item.value)
+                    )
+                    .foregroundStyle(chartColor.opacity(0.12))
+
+                    // Line on top
+                    LineMark(
+                        x: .value("Date", item.date),
+                        y: .value(chartData.label, item.value)
+                    )
+                    .foregroundStyle(chartColor)
+
+                    // Less prominent points
+                    PointMark(
+                        x: .value("Date", item.date),
+                        y: .value(chartData.label, item.value)
+                    )
+                    .symbolSize(20)
+                    .foregroundStyle(chartColor.opacity(0.6))
                 }
-            }
-            .pickerStyle(SegmentedPickerStyle())
-            
-            Chart(chartData.points) { item in
-                // Subtle fill under the line
-                AreaMark(
-                    x: .value("Date", item.date),
-                    y: .value(chartData.label, item.value)
-                )
-                .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.12))
-
-                // Line on top
-                LineMark(
-                    x: .value("Date", item.date),
-                    y: .value(chartData.label, item.value)
-                )
-                .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF"))
-
-                // Less prominent points
-                PointMark(
-                    x: .value("Date", item.date),
-                    y: .value(chartData.label, item.value)
-                )
-                .symbolSize(20)
-                .foregroundStyle(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.6))
             }
             .frame(height: 200)
-            .chartXAxis {
-                AxisMarks(values: getXAxisValues()) { value in
-                    AxisGridLine()
-                    AxisValueLabel(format: getXAxisFormat())
-                }
-            }
+            .chartXScale(domain: bounds.lowerBound...bounds.upperBound)
             .chartYAxis {
                 AxisMarks { _ in
                     AxisValueLabel()
@@ -402,7 +476,49 @@ struct HabitDetailView: View {
                 }
             }
             .chartYAxisLabel(chartData.label, position: .leading)
+            .chartBackground { proxy in
+                GeometryReader { geo in
+                    ForEach(noDataSegments) { segment in
+                        if let startX = proxy.position(forX: segment.start),
+                           let endX = proxy.position(forX: segment.end) {
+                            let minX = min(startX, endX)
+                            let width = abs(endX - startX)
+                            if width > 0 {
+                                let rect = CGRect(x: minX, y: 0, width: width, height: geo.size.height)
+                                Path { path in
+                                    path.addRect(rect)
+                                }
+                                .fill(Color.gray.opacity(0.12))
+
+                                Path { path in
+                                    path.addRect(rect)
+                                }
+                                .stroke(style: StrokeStyle(lineWidth: 1, dash: [6, 6]))
+                                .foregroundColor(Color.gray.opacity(0.4))
+
+                                Text("No data")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .position(x: rect.midX, y: 16)
+                            }
+                        }
+                    }
+                }
+            }
+
         }
+        .padding()
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+    
+    private var timePeriodPickerView: some View {
+        Picker("Time Period", selection: $selectedTimePeriod) {
+            ForEach(TimePeriod.allCases, id: \.self) { period in
+                Text(period.rawValue).tag(period)
+            }
+        }
+        .pickerStyle(SegmentedPickerStyle())
         .padding()
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -410,7 +526,7 @@ struct HabitDetailView: View {
     
     private var reflectionsChartSection: some View {
         Group {
-            if #available(iOS 16.0, *), !moodDataPoints.isEmpty {
+            if #available(iOS 16.0, *) {
                 reflectionsChartModern
             }
         }
@@ -428,6 +544,8 @@ struct HabitDetailView: View {
 
     private var journalEntries: [HabitCompletion] {
         completions.compactMap { entry in
+            guard let date = entry.completedDate else { return nil }
+            if let start = timePeriodStartDate, date < start { return nil }
             let hasMood = entry.moodScore > 0
             let note = entry.notes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let hasNote = !note.isEmpty
@@ -567,7 +685,10 @@ struct HabitDetailView: View {
 
     @available(iOS 16.0, *)
     private var reflectionsChartModern: some View {
-        VStack(alignment: .leading, spacing: 32) {
+        let bounds = chartTimeBounds
+        let noDataSegments = moodNoDataSegments
+
+        return VStack(alignment: .leading, spacing: 32) {
             HStack {
                 Text("Mood Chart")
                     .font(.headline)
@@ -595,6 +716,7 @@ struct HabitDetailView: View {
                 }
             }
             .chartYScale(domain: 0.5...5.5)
+            .chartXScale(domain: bounds.lowerBound...bounds.upperBound)
             .chartYAxis {
                 AxisMarks(position: .leading, values: Array(1...6)) { value in
                     AxisGridLine()
@@ -610,6 +732,35 @@ struct HabitDetailView: View {
                 }
             }
             .chartLegend(.hidden)
+            .chartBackground { proxy in
+                GeometryReader { geo in
+                    ForEach(noDataSegments) { segment in
+                        if let startX = proxy.position(forX: segment.start),
+                           let endX = proxy.position(forX: segment.end) {
+                            let minX = min(startX, endX)
+                            let width = abs(endX - startX)
+                            if width > 0 {
+                                let rect = CGRect(x: minX, y: 0, width: width, height: geo.size.height)
+                                Path { path in
+                                    path.addRect(rect)
+                                }
+                                .fill(Color.gray.opacity(0.12))
+
+                                Path { path in
+                                    path.addRect(rect)
+                                }
+                                .stroke(style: StrokeStyle(lineWidth: 1, dash: [6, 6]))
+                                .foregroundColor(Color.gray.opacity(0.4))
+
+                                Text("No data")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .position(x: rect.midX, y: 16)
+                            }
+                        }
+                    }
+                }
+            }
             .frame(height: 160)
         }
         .padding()
@@ -661,71 +812,17 @@ private struct MoodTrendSegmentPoint: Identifiable {
     let color: Color
 }
 
-    @available(iOS 16.0, *)
-    private func getXAxisValues() -> [Date] {
-        let calendar = Calendar.current
-        let today = Date()
-        
-        // Get the total days for the selected period
-        let totalDays: Int
-        let startDate: Date
-        
-        switch selectedTimePeriod {
-        case .lastWeek:
-            totalDays = 7
-            startDate = calendar.date(byAdding: .day, value: -6, to: today) ?? today
-            
-        case .lastMonth:
-            totalDays = 30
-            startDate = calendar.date(byAdding: .day, value: -29, to: today) ?? today
-            
-        case .last3Months:
-            totalDays = 90
-            startDate = calendar.date(byAdding: .day, value: -89, to: today) ?? today
-            
-        case .allTime:
-            let habitStartDate = habit.createdDate ?? completions.last?.completedDate ?? today
-            totalDays = calendar.dateComponents([.day], from: habitStartDate, to: today).day ?? 0
-            startDate = habitStartDate
-        }
-        
-        // Handle edge case for very short periods
-        if totalDays <= 4 {
-            var dates: [Date] = []
-            for i in 0...totalDays {
-                if let date = calendar.date(byAdding: .day, value: i, to: startDate) {
-                    dates.append(date)
-                }
-            }
-            return dates
-        } else {
-            // Show 4 equally spaced dates
-            var dates: [Date] = []
-            let interval = totalDays / 3
-            for i in 0..<4 {
-                if let date = calendar.date(byAdding: .day, value: (i * interval), to: startDate) {
-                    dates.append(date)
-                }
-            }
-            return dates
-        }
-    }
-    
-    @available(iOS 16.0, *)
-    private func getXAxisFormat() -> Date.FormatStyle {
-        switch selectedTimePeriod {
-        case .lastWeek:
-            return .dateTime.weekday(.abbreviated) // Mon, Wed, Thu, Sat
-        case .lastMonth, .last3Months, .allTime:
-            return .dateTime.month(.abbreviated).day() // Jan 15
-        }
-    }
-    
+private struct NoDataSegment: Identifiable {
+    let id = UUID()
+    let start: Date
+    let end: Date
+}
+
     private var completionsThisWeek: Int {
         let calendar = Calendar.current
         let today = Date()
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
-        
+
         return completions.filter { completion in
             guard let date = completion.completedDate else { return false }
             return date >= weekStart

@@ -20,7 +20,7 @@ struct timerVisualBundle: WidgetBundle {
     }
     
     var body: some Widget {
-        timerVisual()
+//        timerVisual()
 //        timerVisualControl()
         if #available(iOSApplicationExtension 16.1, *) {
             HabitTimerLiveActivity()
