@@ -119,7 +119,8 @@ struct HabitDetailView: View {
                     }
                 }
 
-                journalLogSection
+                reflectionsChartSection
+                reflectionsLogSection
 
             
             }
@@ -407,14 +408,20 @@ struct HabitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    private var journalLogSection: some View {
+    private var reflectionsChartSection: some View {
+        Group {
+            if #available(iOS 16.0, *), !moodDataPoints.isEmpty {
+                reflectionsChartModern
+            }
+        }
+    }
+
+    private var reflectionsLogSection: some View {
         Group {
             if journalEntries.isEmpty {
-                journalEmptyState
-            } else if #available(iOS 16.0, *) {
-                journalSectionModern
+                reflectionsEmptyState
             } else {
-                journalSectionFallback
+                reflectionsLogContent
             }
         }
     }
@@ -443,6 +450,79 @@ struct HabitDetailView: View {
         .sorted { $0.date < $1.date }
     }
 
+    private var moodTrendSegmentPoints: [MoodTrendSegmentPoint] {
+        let points = moodDataPoints
+        guard points.count > 1 else {
+            return points.map {
+                MoodTrendSegmentPoint(
+                    segmentID: UUID(),
+                    date: $0.date,
+                    mood: Double($0.mood) + 0.5,
+                    color: $0.color
+                )
+            }
+        }
+
+        var segments: [MoodTrendSegmentPoint] = []
+
+        for index in 0..<(points.count - 1) {
+            let start = points[index]
+            let end = points[index + 1]
+            let startValue = Double(start.mood) + 0.5
+            let endValue = Double(end.mood) + 0.5
+            let interval = end.date.timeIntervalSince(start.date)
+            let direction = end.mood >= start.mood ? 1 : -1
+            let boundaries = moodBoundaries(from: start.mood, to: end.mood)
+
+            var currentDate = start.date
+            var currentValue = startValue
+            var currentMood = start.mood
+
+            for boundary in boundaries {
+                let boundaryValue = Double(boundary)
+                let ratio: Double
+                if endValue == startValue {
+                    ratio = 0.0
+                } else {
+                    ratio = (boundaryValue - startValue) / (endValue - startValue)
+                }
+
+                let boundaryDate: Date
+                if interval > 0 {
+                    boundaryDate = start.date.addingTimeInterval(interval * ratio)
+                } else {
+                    boundaryDate = currentDate.addingTimeInterval(0.01)
+                }
+
+                let segmentID = UUID()
+                let color = MoodPalette.color(for: currentMood)
+
+                segments.append(MoodTrendSegmentPoint(segmentID: segmentID, date: currentDate, mood: currentValue, color: color))
+                segments.append(MoodTrendSegmentPoint(segmentID: segmentID, date: boundaryDate, mood: boundaryValue, color: color))
+
+                currentDate = boundaryDate
+                currentValue = boundaryValue
+                currentMood += direction
+            }
+
+            let finalSegmentID = UUID()
+            let finalColor = MoodPalette.color(for: currentMood)
+            segments.append(MoodTrendSegmentPoint(segmentID: finalSegmentID, date: currentDate, mood: currentValue, color: finalColor))
+            segments.append(MoodTrendSegmentPoint(segmentID: finalSegmentID, date: end.date, mood: endValue, color: finalColor))
+        }
+
+        return segments
+    }
+
+    private func moodBoundaries(from startMood: Int, to endMood: Int) -> [Int] {
+        if startMood == endMood { return [] }
+        if startMood < endMood {
+            return Array((startMood + 1)...endMood)
+        } else {
+            return Array((endMood + 1)...startMood).reversed()
+        }
+    }
+
     private var journalEntriesList: some View {
         VStack(spacing: 12) {
             let entries = limitedJournalEntries
@@ -455,10 +535,10 @@ struct HabitDetailView: View {
         }
     }
 
-    private var journalEmptyState: some View {
+    private var reflectionsEmptyState: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Reflections")
+                Text("Reflection Log")
                     .font(.headline)
                 Spacer()
             }
@@ -471,56 +551,13 @@ struct HabitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    @available(iOS 16.0, *)
-    private var journalSectionModern: some View {
+    private var reflectionsLogContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Reflections")
+                Text("Reflection Log")
                     .font(.headline)
                 Spacer()
             }
-
-            if !moodDataPoints.isEmpty {
-                Chart(moodDataPoints) { point in
-                    AreaMark(
-                        x: .value("Date", point.date),
-                        y: .value("Mood", point.mood)
-                    )
-                    .foregroundStyle(point.color.opacity(0.15))
-
-                    LineMark(
-                        x: .value("Date", point.date),
-                        y: .value("Mood", point.mood)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(point.color)
-
-                    PointMark(
-                        x: .value("Date", point.date),
-                        y: .value("Mood", point.mood)
-                    )
-                    .symbolSize(40)
-                    .foregroundStyle(point.color)
-                }
-                .chartYScale(domain: 1...5)
-                .chartYAxis {
-                    AxisMarks(values: [1, 2, 3, 4, 5]) { value in
-                        AxisGridLine()
-                        AxisValueLabel(centered: true) {
-                            if let moodScore = value.as(Int.self) {
-                                Circle()
-                                    .fill(MoodPalette.color(for: moodScore))
-                                    .frame(width: 12, height: 12)
-                                    .accessibilityLabel(Text(MoodPalette.label(for: moodScore)))
-                            }
-                        }
-                    }
-                }
-                .chartYAxisLabel("Mood", position: .leading)
-                .chartLegend(.hidden)
-                .frame(height: 160)
-            }
-
             journalEntriesList
         }
         .padding()
@@ -528,14 +565,52 @@ struct HabitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var journalSectionFallback: some View {
-        VStack(alignment: .leading, spacing: 16) {
+    @available(iOS 16.0, *)
+    private var reflectionsChartModern: some View {
+        VStack(alignment: .leading, spacing: 32) {
             HStack {
-                Text("Reflections")
+                Text("Mood Chart")
                     .font(.headline)
                 Spacer()
             }
-            journalEntriesList
+            
+            Chart {
+                ForEach(moodTrendSegmentPoints) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Mood", point.mood),
+                        series: .value("Segment", point.segmentID.uuidString)
+                    )
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(point.color)
+                }
+
+                ForEach(moodDataPoints) { point in
+                    PointMark(
+                        x: .value("Date", point.date),
+                        y: .value("Mood", Double(point.mood) + 0.5)
+                    )
+                    .symbolSize(40)
+                    .foregroundStyle(point.color)
+                }
+            }
+            .chartYScale(domain: 0.5...5.5)
+            .chartYAxis {
+                AxisMarks(position: .leading, values: Array(1...6)) { value in
+                    AxisGridLine()
+                    AxisValueLabel(centered: true) {
+                        if let moodScore = value.as(Int.self) {
+                            Circle()
+                                .fill(MoodPalette.color(for: moodScore))
+                                .frame(width: 12, height: 12)
+                                .accessibilityLabel(Text(MoodPalette.label(for: moodScore)))
+                        }
+                    }
+                    .offset(x: -8)
+                }
+            }
+            .chartLegend(.hidden)
+            .frame(height: 160)
         }
         .padding()
         .background(Color(.systemGray6))
@@ -571,12 +646,20 @@ struct HabitDetailView: View {
         }
     }
 
-    private struct MoodChartDataPoint: Identifiable {
-        let id = UUID()
-        let date: Date
-        let mood: Int
-        var color: Color { MoodPalette.color(for: mood) }
-    }
+private struct MoodChartDataPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let mood: Int
+    var color: Color { MoodPalette.color(for: mood) }
+}
+
+private struct MoodTrendSegmentPoint: Identifiable {
+    let id = UUID()
+    let segmentID: UUID
+    let date: Date
+    let mood: Double
+    let color: Color
+}
 
     @available(iOS 16.0, *)
     private func getXAxisValues() -> [Date] {
@@ -867,7 +950,31 @@ private let monthYearFormatter: DateFormatter = {
         habit.totalCompletions = 25
         habit.createdDate = Date()
         habit.isActive = true
-        
+        habit.habitDescription = "Daily mindfulness and reflection practice."
+
+        // Seed recent journal entries with varying moods
+        let calendar = Calendar.current
+        let notes = [
+            "Felt focused and calm after the session.",
+            "A bit distracted today, but still showed up.",
+            "Great energy! Wrapped up tasks quickly.",
+            "Struggled to get started, but finished strong.",
+            "Short session, yet helpful for clarity.",
+            "Adding some more here",
+            "Testing, Testing, Testing",
+            "Please work properly for the love of god",
+            "Why does the view still look like shit, who knows",
+            "Testing the view with lots of entries"
+        ]
+        for offset in 0..<notes.count {
+            let completion = HabitCompletion(context: context)
+            completion.id = UUID()
+            completion.completedDate = calendar.date(byAdding: .day, value: -offset, to: Date())
+            completion.habit = habit
+            completion.moodScore = Int16(Int.random(in: 1...5))
+            completion.notes = notes[offset]
+        }
+
         return HabitDetailView(habit: habit)
             .environment(\.managedObjectContext, context)
     }

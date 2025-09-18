@@ -18,8 +18,8 @@ enum MoodPalette {
 
     static func label(for score: Int) -> String {
         switch score {
-        case 1: return "Very Low Mood"
-        case 2: return "Low Mood"
+        case 1: return "Very Negative"
+        case 2: return "Negative"
         case 3: return "Neutral"
         case 4: return "Positive"
         default: return "Very Positive"
