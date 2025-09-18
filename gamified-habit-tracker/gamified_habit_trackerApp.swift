@@ -10,7 +10,9 @@ import SwiftUI
 @main
 struct gamified_habit_trackerApp: App {
     let persistenceController = PersistenceController.shared
-    init() {}
+    init() {
+        HabitWidgetExporter.shared.bootstrap(using: persistenceController.container.viewContext)
+    }
 
     var body: some Scene {
         WindowGroup {

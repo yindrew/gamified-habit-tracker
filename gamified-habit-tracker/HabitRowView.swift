@@ -21,6 +21,8 @@ struct HabitRowView: View {
 
     // Timer/UI states managed locally; core values live in the view model
     @State private var showFocusMode = false
+    @State private var journalCompletion: HabitCompletion?
+    @State private var hasShownJournalForCurrentCompletion = false
 
     @StateObject private var viewModel: HabitRowViewModel
 
@@ -187,6 +189,21 @@ struct HabitRowView: View {
                 }
             )
             
+            // if !habit.isEtherealHabit && viewModel.hasAnyCompletion {
+            //     Spacer(minLength: 8)
+            //     Button(action: {
+            //         _ = viewModel.prepareAdditionalReflection()
+            //     }) {
+            //         Image(systemName: "text.badge.plus")
+            //             .font(.title3)
+            //             .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+            //             .padding(10)
+            //             .background(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.12))
+            //             .clipShape(Circle())
+            //     }
+            //     .buttonStyle(.plain)
+            // }
+
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
@@ -203,9 +220,17 @@ struct HabitRowView: View {
                 viewModel.didAutoStopAtGoal = false
             }
         }
+        .onChange(of: viewModel.isCompletedForDisplay) { _, isCompleted in
+            if !isCompleted {
+                hasShownJournalForCurrentCompletion = false
+            }
+        }
         .onAppear {
             // Provide Core Data context to the view model
             viewModel.setContext(viewContext)
+            if !viewModel.isCompletedForDisplay {
+                hasShownJournalForCurrentCompletion = false
+            }
         }
         .onDisappear {
             // Clean up timer if this view disappears
@@ -233,6 +258,20 @@ struct HabitRowView: View {
                     }
                 }
             )
+        }
+        .onChange(of: viewModel.pendingJournalEntry) { _, newEntry in
+            if let entry = newEntry {
+                if !viewModel.isCompletedForDisplay || !hasShownJournalForCurrentCompletion {
+                    journalCompletion = entry
+                    hasShownJournalForCurrentCompletion = true
+                }
+                viewModel.pendingJournalEntry = nil
+            }
+        }
+        .sheet(item: $journalCompletion) { completion in
+            JournalEntrySheet(completion: completion) {
+                journalCompletion = nil
+            }
         }
     }
     
@@ -269,5 +308,97 @@ struct HabitRowView: View {
         withAnimation(.spring()) { showingCompletionAnimation = true }
         viewModel.completeHabit()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showingCompletionAnimation = false }
+    }
+}
+
+private struct JournalEntrySheet: View {
+    @ObservedObject var completion: HabitCompletion
+    let onFinish: () -> Void
+
+    @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var mood: Int
+    @State private var notes: String
+
+    init(completion: HabitCompletion, onFinish: @escaping () -> Void) {
+        self.completion = completion
+        self.onFinish = onFinish
+        let existingMood = Int(completion.moodScore)
+        _mood = State(initialValue: (1...5).contains(existingMood) ? existingMood : 3)
+        _notes = State(initialValue: completion.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Mood")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 16) {
+                            ForEach(1...5, id: \.self) { value in
+                                Circle()
+                                    .fill(MoodPalette.color(for: value))
+                                    .frame(width: 34, height: 34)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.primary.opacity(mood == value ? 0.9 : 0.3), lineWidth: mood == value ? 3 : 1)
+                                    )
+                                    .shadow(color: Color.black.opacity(0.1), radius: mood == value ? 3 : 0)
+                                    .onTapGesture { mood = value }
+                                    .accessibilityLabel(Text(MoodPalette.label(for: value)))
+                            }
+                        }
+                        Text(MoodPalette.label(for: mood))
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Section(header: Text("Journal")) {
+                    TextField("How was the habit today...", text: $notes, axis: .vertical)
+                        .textInputAutocapitalization(.sentences)
+                        .lineLimit(3...6)
+                }
+            }
+            .navigationTitle("Reflect")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Skip") { closeSheet(save: false) }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { closeSheet(save: true) }
+                }
+            }
+        }
+    }
+
+    private func closeSheet(save: Bool) {
+        if save {
+            completion.moodScore = Int16(mood)
+            let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            completion.notes = trimmed.isEmpty ? nil : trimmed
+            do {
+                try viewContext.save()
+                HabitWidgetExporter.shared.scheduleSync(using: viewContext)
+            } catch {
+                #if DEBUG
+                print("[JournalEntrySheet] Failed to save journal: \(error)")
+                #endif
+            }
+        } else {
+            if completion.isInserted {
+                viewContext.delete(completion)
+                do {
+                    try viewContext.save()
+                } catch {
+                    viewContext.rollback()
+                }
+            } else {
+                viewContext.refresh(completion, mergeChanges: false)
+            }
+        }
+        dismiss()
+        onFinish()
     }
 }

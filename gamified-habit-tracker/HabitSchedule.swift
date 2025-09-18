@@ -73,6 +73,9 @@ extension Habit {
     
     /// Check if this habit is scheduled for a specific date
     func isScheduledForDate(_ date: Date) -> Bool {
+        if habitType == "ethereal" {
+            return isActive
+        }
         let calendar = Calendar.current
         
         switch schedule {
@@ -326,6 +329,11 @@ extension Habit {
     /// Whether this is a timer habit
     var isTimerHabit: Bool {
         return habitType == "timer"
+    }
+    
+    /// Whether this is an ethereal (single-shot) habit
+    var isEtherealHabit: Bool {
+        return habitType == "ethereal"
     }
     
     /// Get routine steps as array
