@@ -179,8 +179,12 @@ struct HabitFormView: View {
         return false
     }
     
+    private var menuItemLabel: String {
+        habitType == .ethereal ? "Task" : "Habit"
+    }
+
     private var navigationTitle: String {
-        isEditing ? "Edit Item" : "New Item"
+        isEditing ? "Edit \(menuItemLabel)" : "New \(menuItemLabel)"
     }
     
     private var saveButtonText: String {
@@ -531,7 +535,7 @@ struct HabitFormView: View {
             
             // Metric Value (per completion)
             HStack {
-                Text("Value per completion")
+                Text("Value per Increment")
                 Spacer()
                 TextField("1.0", value: $metricValue, format: .number)
                     .textFieldStyle(RoundedBorderTextFieldStyle())

@@ -41,6 +41,9 @@ public struct IncrementHabitIntent: AppIntent {
             completion.id = UUID()
             completion.completedDate = Date()
             completion.habit = habit
+            if !habit.isRoutineHabit && !habit.isTimerHabit && !habit.isEtherealHabit {
+                completion.metricAmount = habit.metricValue
+            }
 
             habit.totalCompletions += 1
             habit.lastCompletedDate = Date()
@@ -51,7 +54,7 @@ public struct IncrementHabitIntent: AppIntent {
             HabitWidgetExporter.shared.scheduleSync(using: context)
         }
 
-        await WidgetCenter.shared.reloadTimelines(ofKind: "timerVisual")
+        WidgetCenter.shared.reloadTimelines(ofKind: "timerVisual")
         return .result()
     }
 }
