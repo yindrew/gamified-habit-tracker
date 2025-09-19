@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreData
 
 enum ScheduleType: String, CaseIterable {
     case daily = "daily"
@@ -152,8 +153,8 @@ extension Habit {
         let todayStart = calendar.startOfDay(for: date)
         
         // Check if we met the target threshold yesterday
-        let yesterdayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", yesterdayStart as NSDate, todayStart as NSDate))
-        let completionCount = yesterdayCompletions?.count ?? 0
+        let yesterdayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", yesterdayStart as NSDate, todayStart as NSDate)) as? Set<HabitCompletion>
+        let completionCount = yesterdayCompletions?.filter { !$0.isJournalOnly }.count ?? 0
         let metThreshold = completionCount >= targetFrequency
         
         // Also check if we already used coping plan today
@@ -210,8 +211,9 @@ extension Habit {
                 let nextDay = calendar.date(byAdding: .day, value: 1, to: currentDate)!
                 
                 // Check if completed on this scheduled day
-                let dayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", currentDate as NSDate, nextDay as NSDate))
-                let completedThisDay = (dayCompletions?.count ?? 0) >= targetFrequency
+                let dayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", currentDate as NSDate, nextDay as NSDate)) as? Set<HabitCompletion>
+                let actualCount = dayCompletions?.filter { !$0.isJournalOnly }.count ?? 0
+                let completedThisDay = actualCount >= targetFrequency
                 
                 // Check if coping plan was used the next day to cover this missed day
                 // (Coping plan used on day X covers the missed habit from day X-1)
@@ -281,20 +283,28 @@ extension Habit {
     
     // MARK: - Metric Helpers
     
-    /// Current progress in metric units (completions × metricValue)
+    /// Current progress in metric units for today
     var currentProgress: Double {
-        return Double(completionsToday) * metricValue
+        if isTimerHabit {
+            return timerMinutesToday
+        }
+        if isRoutineHabit {
+            let progress = routineProgress
+            guard progress.total > 0 else { return 0.0 }
+            return Double(progress.completed) / Double(progress.total) * goalValue
+        }
+        return frequencyMetricProgressToday
     }
-    
+
     /// Current progress as formatted string with unit
     var currentProgressString: String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = metricValue.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 1
-        
+        formatter.maximumFractionDigits = allowsFractionalMetrics ? 1 : 0
+
         let progressStr = formatter.string(from: NSNumber(value: currentProgress)) ?? "0"
         let goalStr = formatter.string(from: NSNumber(value: goalValue)) ?? "0"
-        
+
         return "\(progressStr)/\(goalStr) \(metricUnit ?? "times")"
     }
     
@@ -303,20 +313,41 @@ extension Habit {
         guard goalValue > 0 else { return 0.0 }
         return min(currentProgress / goalValue, 1.0)
     }
-    
+
     /// Whether the goal has been met today
     var goalMetToday: Bool {
         return currentProgress >= goalValue
     }
-    
+
     /// Completions today
     private var completionsToday: Int32 {
+        Int32(todaysCompletions.count)
+    }
+
+    private var todaysCompletions: [HabitCompletion] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        
-        let todayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate))
-        return Int32(todayCompletions?.count ?? 0)
+
+        let predicate = NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)
+        guard let todayCompletions = completions?.filtered(using: predicate) as? Set<HabitCompletion> else { return [] }
+        return todayCompletions.filter { !$0.isJournalOnly }
+    }
+
+    var frequencyMetricProgressToday: Double {
+        todaysCompletions.reduce(0) { running, completion in
+            let amount = completion.metricAmount
+            if amount > 0 {
+                return running + amount
+            }
+            return running + metricValue
+        }
+    }
+
+    var allowsFractionalMetrics: Bool {
+        if isTimerHabit { return true }
+        if isRoutineHabit { return false }
+        return metricValue.truncatingRemainder(dividingBy: 1) != 0 || todaysCompletions.contains { $0.metricAmount > 0 && $0.metricAmount.truncatingRemainder(dividingBy: 1) != 0 }
     }
     
     // MARK: - Routine Habit Support
@@ -361,21 +392,16 @@ extension Habit {
         
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        
-        let todayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate))
-        
+
+        let todayCompletions = todaysCompletions
         var completedSteps: Set<Int> = []
-        if let completions = todayCompletions {
-            for completion in completions {
-                if let completion = completion as? HabitCompletion,
-                   let stepsString = completion.completedSteps {
-                    let steps = stepsString.components(separatedBy: ",").compactMap { Int($0) }
-                    completedSteps.formUnion(steps)
-                }
+        for completion in todayCompletions {
+            if let stepsString = completion.completedSteps {
+                let steps = stepsString.components(separatedBy: ",").compactMap { Int($0) }
+                completedSteps.formUnion(steps)
             }
         }
-        
+
         return completedSteps
     }
     
@@ -410,19 +436,14 @@ extension Habit {
         
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
         
-        let todayCompletions = completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate))
-        
+        let todayCompletions = todaysCompletions
+
         var totalMinutes: Double = 0.0
-        if let completions = todayCompletions {
-            for completion in completions {
-                if let completion = completion as? HabitCompletion {
-                    totalMinutes += completion.timerDuration
-                }
-            }
+        for completion in todayCompletions {
+            totalMinutes += completion.timerDuration
         }
-        
+
         return totalMinutes
     }
     

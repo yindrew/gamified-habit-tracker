@@ -37,7 +37,10 @@ enum ChartDataBuilder {
             startDate = calendar.date(byAdding: .day, value: -(d - 1), to: today) ?? today
         } else {
             // All time: use earliest available date
-            let firstCompletion = completions.compactMap { $0.completedDate }.min()
+            let firstCompletion = completions
+                .filter { !$0.isJournalOnly }
+                .compactMap { $0.completedDate }
+                .min()
             startDate = min(habit.createdDate ?? today, firstCompletion ?? today)
         }
 
@@ -52,7 +55,7 @@ enum ChartDataBuilder {
 
         // Group completions per day
         var perDay: [Date: [HabitCompletion]] = [:]
-        for c in completions {
+        for c in completions where !c.isJournalOnly {
             guard let dt = c.completedDate, dt >= startDate && dt <= today else { continue }
             let key = calendar.startOfDay(for: dt)
             perDay[key, default: []].append(c)
@@ -61,7 +64,14 @@ enum ChartDataBuilder {
         // Compute values
         let isTimer = habit.isTimerHabit
         let isRoutine = habit.isRoutineHabit
-        let yAxis: ChartYAxis = isTimer ? .minutes : (isRoutine ? .steps : .completions)
+        let yAxis: ChartYAxis
+        if isTimer {
+            yAxis = .minutes
+        } else if isRoutine {
+            yAxis = .steps
+        } else {
+            yAxis = .completions
+        }
 
         let points: [ChartDataPoint] = dayStarts.map { day in
             let comps = perDay[day] ?? []
@@ -80,8 +90,13 @@ enum ChartDataBuilder {
                 }
                 val = Double(set.count)
             } else {
-                // Frequency: count completions
-                val = Double(comps.count)
+                // Frequency: sum metric amounts, fallback to metricValue when unset
+                val = comps.reduce(0.0) { running, completion in
+                    if completion.metricAmount > 0 {
+                        return running + completion.metricAmount
+                    }
+                    return running + habit.metricValue
+                }
             }
             return ChartDataPoint(date: day, value: val)
         }
@@ -89,4 +104,3 @@ enum ChartDataBuilder {
         return (points.sorted { $0.date < $1.date }, yAxis)
     }
 }
-

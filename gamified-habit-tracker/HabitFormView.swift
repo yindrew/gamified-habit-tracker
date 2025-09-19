@@ -531,7 +531,7 @@ struct HabitFormView: View {
             
             // Metric Value (per completion)
             HStack {
-                Text("Value per completion")
+                Text("Value per Increment")
                 Spacer()
                 TextField("1.0", value: $metricValue, format: .number)
                     .textFieldStyle(RoundedBorderTextFieldStyle())

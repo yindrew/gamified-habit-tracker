@@ -177,11 +177,31 @@ struct ContentView: View {
             HabitsListView(
                 sortedHabits: sortedHabits,
                 colorScheme: colorScheme,
-                activeTimerHabit: $activeTimerHabit
+                activeTimerHabit: $activeTimerHabit,
+                onDeleteHabit: deleteHabit
             )
         }
     }
-    
+
+    private func deleteHabit(_ habit: Habit) {
+        let shouldClearTimer = activeTimerHabit?.objectID == habit.objectID
+
+        withAnimation {
+            habit.isActive = false
+            if shouldClearTimer {
+                activeTimerHabit = nil
+            }
+        }
+
+        do {
+            try viewContext.save()
+            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
+        } catch {
+            let nsError = error as NSError
+            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+        }
+    }
+
     private var toolbarPrincipal: some View {
         HStack {
             Text("Trackr")
@@ -274,21 +294,25 @@ private struct HabitsListView: View {
     let sortedHabits: [Habit]
     let colorScheme: String
     @Binding var activeTimerHabit: Habit?
+    let onDeleteHabit: (Habit) -> Void
 
     var body: some View {
         List {
             ForEach(sortedHabits, id: \.objectID) { (habit: Habit) in
-                ZStack {
-                    NavigationLink(destination: HabitDetailView(habit: habit)) { EmptyView() }
-                        .opacity(0)
-
-                    HabitRowView(
-                        habit: habit,
-                        colorScheme: colorScheme,
-                        activeTimerHabit: $activeTimerHabit
-                    )
-                }
-                .buttonStyle(PlainButtonStyle())
+                HabitRowView(
+                    habit: habit,
+                    colorScheme: colorScheme,
+                    activeTimerHabit: $activeTimerHabit,
+                    onDelete: { _ in onDeleteHabit(habit) }
+                )
+                .background(
+                    NavigationLink(
+                        destination: HabitDetailView(habit: habit)
+                    ) {
+                        EmptyView()
+                    }
+                    .opacity(0) // invisible but tappable
+                )
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 .listRowBackground(Color.clear)
             }

@@ -51,11 +51,10 @@ struct HabitDetailView: View {
     private var chartData: (points: [ChartDataPoint], label: String) {
         let array = Array(completions)
         let built = ChartDataBuilder.dailyPoints(for: habit, completions: array, days: selectedTimePeriod.days)
-        // For frequency habits, scale counts by metricValue and relabel to metricUnit
+        // For frequency habits, ChartDataBuilder already returns metric totals; relabel axis to unit
         if !habit.isTimerHabit && !habit.isRoutineHabit {
-            let scaled = built.points.map { ChartDataPoint(date: $0.date, value: $0.value * habit.metricValue) }
             let unit = (habit.metricUnit?.isEmpty == false) ? habit.metricUnit! : "times"
-            return (scaled, unit)
+            return (built.points, unit)
         }
         return (built.points, built.yLabel.rawValue)
     }
@@ -128,15 +127,6 @@ struct HabitDetailView: View {
                 segments.append(NoDataSegment(start: start, end: adjustedEnd))
             }
         }
-
-        if let lastMoodDate = moodDataPoints.last?.date {
-            let nextDayStart = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: lastMoodDate)) ?? lastMoodDate
-            let segmentStart = max(start, nextDayStart)
-            if segmentStart < end {
-                segments.append(NoDataSegment(start: segmentStart, end: end))
-            }
-        }
-
         return segments
     }
 
@@ -181,6 +171,10 @@ struct HabitDetailView: View {
         return streaks.filter { $0.length >= 3 } // Only show streaks of 3+ days
     }
     
+    private var menuItemLabel: String {
+        habit.isEtherealHabit ? "Habit" : "Task"
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -212,11 +206,11 @@ struct HabitDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button("Edit Item") {
+                    Button("Edit \(menuItemLabel)") {
                         showingEditHabit = true
                     }
                     
-                    Button("Delete Item", role: .destructive) {
+                    Button("Delete \(menuItemLabel)", role: .destructive) {
                         showingDeleteAlert = true
                     }
                 } label: {
@@ -227,13 +221,13 @@ struct HabitDetailView: View {
         .sheet(isPresented: $showingEditHabit) {
             HabitFormView(mode: .edit(habit))
         }
-        .alert("Delete Habit", isPresented: $showingDeleteAlert) {
+        .alert("Delete \(menuItemLabel)", isPresented: $showingDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
                 deleteHabit()
             }
         } message: {
-            Text("Are you sure you want to delete this habit? This action cannot be undone.")
+            Text("Are you sure you want to delete this \(menuItemLabel.lowercased())? This action cannot be undone.")
         }
     }
     
@@ -286,8 +280,8 @@ struct HabitDetailView: View {
             } else if !habit.isRoutineHabit {
                 // Frequency habits: show metric totals using metricValue/unit
                 let unit = (habit.metricUnit?.isEmpty == false) ? habit.metricUnit! : "times"
-                let allTimeTotal = Double(completions.count) * habit.metricValue
-                let weekTotal = Double(completionsThisWeek) * habit.metricValue
+                let allTimeTotal = metricTotal(for: Array(completions))
+                let weekTotal = metricTotalThisWeek
                 StatCard(title: "Completed (All Time)", value: "\(formatMetricTotal(allTimeTotal)) \(unit)", color: color)
                 StatCard(title: "Completed (This Week)", value: "\(formatMetricTotal(weekTotal)) \(unit)", color: color)
             }
@@ -299,7 +293,7 @@ struct HabitDetailView: View {
         let calendar = Calendar.current
         // Group completions by day
         var perDay: [Date: [HabitCompletion]] = [:]
-        for c in completions {
+        for c in completions where !c.isJournalOnly {
             guard let dt = c.completedDate else { continue }
             let key = calendar.startOfDay(for: dt)
             perDay[key, default: []].append(c)
@@ -315,7 +309,7 @@ struct HabitDetailView: View {
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
         // Group completions by day within this week
         var perDay: [Date: [HabitCompletion]] = [:]
-        for c in completions {
+        for c in completions where !c.isJournalOnly {
             guard let dt = c.completedDate, dt >= weekStart else { continue }
             let key = calendar.startOfDay(for: dt)
             perDay[key, default: []].append(c)
@@ -326,14 +320,16 @@ struct HabitDetailView: View {
     }
 
     private func isTargetMet(on day: Date, with dayCompletions: [HabitCompletion]) -> Bool {
+        let relevantCompletions = dayCompletions.filter { !$0.isJournalOnly }
+
         if habit.isTimerHabit {
-            let minutes = dayCompletions.reduce(0.0) { $0 + $1.timerDuration }
+            let minutes = relevantCompletions.reduce(0.0) { $0 + $1.timerDuration }
             return minutes >= habit.goalValue
         } else if habit.isRoutineHabit {
             let totalSteps = habit.routineStepsArray.count
             guard totalSteps > 0 else { return false }
             var steps = Set<Int>()
-            for c in dayCompletions {
+            for c in relevantCompletions {
                 if let s = c.completedSteps, !s.isEmpty {
                     let ints = s.split(separator: ",").compactMap { Int($0) }
                     steps.formUnion(ints)
@@ -342,7 +338,7 @@ struct HabitDetailView: View {
             return steps.count >= totalSteps
         } else {
             // Frequency: at least targetFrequency completions
-            return dayCompletions.count >= Int(habit.targetFrequency)
+            return relevantCompletions.count >= Int(habit.targetFrequency)
         }
     }
 
@@ -561,9 +557,24 @@ struct HabitDetailView: View {
     }
 
     private var moodDataPoints: [MoodChartDataPoint] {
-        journalEntries.compactMap { entry in
-            guard entry.moodScore > 0, let date = entry.completedDate else { return nil }
-            return MoodChartDataPoint(date: date, mood: Int(entry.moodScore))
+        let calendar = Calendar.current
+        var dailyTotals: [Date: (total: Double, count: Int)] = [:]
+
+        for entry in journalEntries {
+            guard entry.moodScore > 0, let completed = entry.completedDate else { continue }
+            let dayStart = calendar.startOfDay(for: completed)
+            let clampedScore = Double(max(1, min(5, Int(entry.moodScore))))
+            let running = dailyTotals[dayStart] ?? (0, 0)
+            dailyTotals[dayStart] = (running.total + clampedScore, running.count + 1)
+        }
+
+        return dailyTotals.map { element in
+            let (dayStart, aggregate) = element
+            let rawAverage = aggregate.total / Double(aggregate.count)
+            let average = min(5, max(1, rawAverage))
+            let moodLevel = max(1, min(5, Int(average.rounded())))
+            let displayDate = calendar.date(byAdding: .hour, value: 12, to: dayStart) ?? dayStart
+            return MoodChartDataPoint(date: displayDate, averageMood: average, moodLevel: moodLevel)
         }
         .sorted { $0.date < $1.date }
     }
@@ -575,7 +586,7 @@ struct HabitDetailView: View {
                 MoodTrendSegmentPoint(
                     segmentID: UUID(),
                     date: $0.date,
-                    mood: Double($0.mood) + 0.5,
+                    mood: $0.chartValue,
                     color: $0.color
                 )
             }
@@ -586,15 +597,15 @@ struct HabitDetailView: View {
         for index in 0..<(points.count - 1) {
             let start = points[index]
             let end = points[index + 1]
-            let startValue = Double(start.mood) + 0.5
-            let endValue = Double(end.mood) + 0.5
+            let startValue = start.chartValue
+            let endValue = end.chartValue
             let interval = end.date.timeIntervalSince(start.date)
-            let direction = end.mood >= start.mood ? 1 : -1
-            let boundaries = moodBoundaries(from: start.mood, to: end.mood)
+            let direction = endValue >= startValue ? 1 : -1
+            let boundaries = moodBoundaries(from: start.moodLevel, to: end.moodLevel)
 
             var currentDate = start.date
             var currentValue = startValue
-            var currentMood = start.mood
+            var currentMood = start.moodLevel
 
             for boundary in boundaries {
                 let boundaryValue = Double(boundary)
@@ -620,7 +631,7 @@ struct HabitDetailView: View {
 
                 currentDate = boundaryDate
                 currentValue = boundaryValue
-                currentMood += direction
+                currentMood = max(1, min(5, currentMood + direction))
             }
 
             let finalSegmentID = UUID()
@@ -709,7 +720,7 @@ struct HabitDetailView: View {
                 ForEach(moodDataPoints) { point in
                     PointMark(
                         x: .value("Date", point.date),
-                        y: .value("Mood", Double(point.mood) + 0.5)
+                        y: .value("Mood", point.chartValue)
                     )
                     .symbolSize(40)
                     .foregroundStyle(point.color)
@@ -800,8 +811,11 @@ struct HabitDetailView: View {
 private struct MoodChartDataPoint: Identifiable {
     let id = UUID()
     let date: Date
-    let mood: Int
-    var color: Color { MoodPalette.color(for: mood) }
+    let averageMood: Double
+    let moodLevel: Int
+
+    var chartValue: Double { averageMood + 0.5 }
+    var color: Color { MoodPalette.color(for: moodLevel) }
 }
 
 private struct MoodTrendSegmentPoint: Identifiable {
@@ -818,15 +832,30 @@ private struct NoDataSegment: Identifiable {
     let end: Date
 }
 
-    private var completionsThisWeek: Int {
+    private var metricTotalThisWeek: Double {
         let calendar = Calendar.current
         let today = Date()
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
 
-        return completions.filter { completion in
+        let weekCompletions = completions.filter { completion in
             guard let date = completion.completedDate else { return false }
-            return date >= weekStart
-        }.count
+            guard date >= weekStart else { return false }
+            return !completion.isJournalOnly
+        }
+
+        return metricTotal(for: Array(weekCompletions))
+    }
+
+    private func metricTotal(for completions: [HabitCompletion]) -> Double {
+        completions.reduce(0) { running, completion in
+            if completion.metricAmount > 0 {
+                return running + completion.metricAmount
+            }
+            if completion.isJournalOnly {
+                return running
+            }
+            return running + habit.metricValue
+        }
     }
     
     private var dayHeaders: [String] {
@@ -839,16 +868,16 @@ private struct NoDataSegment: Identifiable {
         guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else {
             return []
         }
-        
+
         let firstOfMonth = monthInterval.start
         let lastOfMonth = calendar.date(byAdding: .day, value: -1, to: monthInterval.end) ?? monthInterval.end
-        
+
         // Get the first day of the week for the first day of the month
         let firstWeekday = calendar.component(.weekday, from: firstOfMonth)
         let startOffset = firstWeekday - 1 // Sunday = 1, so offset by 1 less
-        
+
         var days: [CalendarDay] = []
-        
+
         // Add empty days for the beginning of the month
         if startOffset > 0 {
             for i in 0..<startOffset {
@@ -857,7 +886,7 @@ private struct NoDataSegment: Identifiable {
                 }
             }
         }
-        
+
         // Add days of the current month
         let daysInMonth = calendar.dateComponents([.day], from: firstOfMonth, to: lastOfMonth).day ?? 0
         for dayOffset in 0...daysInMonth {
@@ -866,7 +895,7 @@ private struct NoDataSegment: Identifiable {
                 days.append(CalendarDay(date: date, isInCurrentMonth: true, completionCount: status))
             }
         }
-        
+
         // Add empty days to fill the last week
         let totalCells = 42 // 6 rows × 7 days
         while days.count < totalCells {
@@ -877,28 +906,17 @@ private struct NoDataSegment: Identifiable {
                 break
             }
         }
-        
-        return Array(days.prefix(totalCells))
-    }
-    
-    private func getCompletionCount(for date: Date) -> Int {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: date)
-        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
 
-        return completions.filter { completion in
-            guard let completedDate = completion.completedDate else { return false }
-            return completedDate >= dayStart && completedDate < dayEnd
-        }.count
+        return Array(days.prefix(totalCells))
     }
 
     private func getCompletions(for date: Date) -> [HabitCompletion] {
         let calendar = Calendar.current
         let dayStart = calendar.startOfDay(for: date)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        return completions.filter { c in
-            guard let d = c.completedDate else { return false }
-            return d >= dayStart && d < dayEnd
+        return completions.filter { completion in
+            guard let completedDate = completion.completedDate else { return false }
+            return completedDate >= dayStart && completedDate < dayEnd
         }
     }
 
@@ -906,21 +924,21 @@ private struct NoDataSegment: Identifiable {
     private func getTargetStatusValue(for date: Date) -> Int {
         // Only color scheduled days
         if !habit.isScheduledForDate(date) { return 0 }
-        let dayComps = getCompletions(for: date)
-        if isTargetMet(on: date, with: dayComps) { return 2 }
-        // Partial if there is some progress but not met
+        let dayCompletions = getCompletions(for: date)
+        if isTargetMet(on: date, with: dayCompletions) { return 2 }
+
         if habit.isTimerHabit {
-            let minutes = dayComps.reduce(0.0) { $0 + $1.timerDuration }
+            let minutes = dayCompletions.reduce(0.0) { $0 + $1.timerDuration }
             return minutes > 0 ? 1 : 0
         } else if habit.isRoutineHabit {
-            let steps = dayComps.reduce(into: Set<Int>()) { acc, c in
-                if let s = c.completedSteps, !s.isEmpty {
-                    s.split(separator: ",").compactMap { Int($0) }.forEach { acc.insert($0) }
+            let steps = dayCompletions.reduce(into: Set<Int>()) { acc, completion in
+                if let string = completion.completedSteps, !string.isEmpty {
+                    string.split(separator: ",").compactMap { Int($0) }.forEach { acc.insert($0) }
                 }
             }
             return steps.count > 0 ? 1 : 0
         } else {
-            return dayComps.count > 0 ? 1 : 0
+            return dayCompletions.count > 0 ? 1 : 0
         }
     }
     
@@ -1070,6 +1088,7 @@ private let monthYearFormatter: DateFormatter = {
             completion.habit = habit
             completion.moodScore = Int16(Int.random(in: 1...5))
             completion.notes = notes[offset]
+            completion.metricAmount = habit.metricValue
         }
 
         return HabitDetailView(habit: habit)

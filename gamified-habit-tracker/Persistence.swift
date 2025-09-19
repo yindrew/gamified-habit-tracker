@@ -47,6 +47,7 @@ struct PersistenceController {
                 completion.id = UUID()
                 completion.completedDate = Date().addingTimeInterval(-Double(i * 86400))
                 completion.habit = habit
+                completion.metricAmount = habit.metricValue
             }
         }
         

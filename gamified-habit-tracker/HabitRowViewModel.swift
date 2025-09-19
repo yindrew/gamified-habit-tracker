@@ -29,7 +29,11 @@ final class HabitRowViewModel: ObservableObject {
     init(habit: Habit) {
         self.habit = habit
         if let set = habit.completions as? Set<HabitCompletion> {
-            self.lastJournaledCompletionID = set.sorted { ($0.completedDate ?? .distantPast) > ($1.completedDate ?? .distantPast) }.first?.objectID
+            let latestNonJournal = set
+                .filter { !$0.isJournalOnly }
+                .sorted { ($0.completedDate ?? .distantPast) > ($1.completedDate ?? .distantPast) }
+                .first
+            self.lastJournaledCompletionID = latestNonJournal?.objectID
         }
     }
 
@@ -73,8 +77,9 @@ final class HabitRowViewModel: ObservableObject {
             format: "completedDate >= %@ AND completedDate < %@",
             today as NSDate,
             tomorrow as NSDate
-        ))
-        return todayCompletions?.count ?? 0
+        )) as? Set<HabitCompletion>
+
+        return todayCompletions?.filter { !$0.isJournalOnly }.count ?? 0
     }
 
     var progressPercentage: Double {
@@ -185,7 +190,7 @@ final class HabitRowViewModel: ObservableObject {
 
     var hasAnyCompletion: Bool {
         guard let set = habit.completions as? Set<HabitCompletion> else { return false }
-        return !set.isEmpty
+        return set.contains { !$0.isJournalOnly }
     }
 
     var progressText: String {
@@ -197,8 +202,13 @@ final class HabitRowViewModel: ObservableObject {
         } else if habit.isScheduledToday {
             return habit.currentProgressString
         } else {
+            let formatter = NumberFormatter()
+            formatter.minimumFractionDigits = 0
+            formatter.maximumFractionDigits = habit.allowsFractionalMetrics ? 1 : 0
+            let amount = habit.frequencyMetricProgressToday
+            let amountString = formatter.string(from: NSNumber(value: amount)) ?? "0"
             let unit = habit.metricUnit ?? "times"
-            return "\(completionsToday) \(unit)"
+            return "\(amountString) \(unit)"
         }
     }
 
@@ -234,6 +244,9 @@ final class HabitRowViewModel: ObservableObject {
         completion.id = UUID()
         completion.completedDate = Date()
         completion.habit = habit
+        if !habit.isTimerHabit && !habit.isRoutineHabit && !habit.isEtherealHabit {
+            completion.metricAmount = habit.metricValue
+        }
 
         habit.totalCompletions += 1
         habit.lastCompletedDate = Date()
@@ -254,8 +267,22 @@ final class HabitRowViewModel: ObservableObject {
     }
 
 
-    func prepareAdditionalReflection() -> HabitCompletion? {
-        let entry = latestCompletion()
+    func prepareAdditionalReflection(createNewJournalEntry: Bool = false) -> HabitCompletion? {
+        if createNewJournalEntry {
+            guard let context = viewContext else { return nil }
+            let entry = HabitCompletion(context: context)
+            entry.id = UUID()
+            entry.completedDate = Date()
+            entry.habit = habit
+            entry.isJournalOnly = true
+            pendingJournalEntry = entry
+            return entry
+        }
+
+        guard let entry = latestCompletion() else {
+            pendingJournalEntry = nil
+            return nil
+        }
         pendingJournalEntry = entry
         return entry
     }
@@ -320,7 +347,7 @@ final class HabitRowViewModel: ObservableObject {
         guard !habit.isEtherealHabit else { return false }
         guard shouldPromptForJournal else { return false }
         let entry = newCompletion ?? latestCompletion()
-        guard let entry else { return false }
+        guard let entry, !entry.isJournalOnly else { return false }
         if let lastID = lastJournaledCompletionID, lastID == entry.objectID {
             return false
         }
@@ -331,7 +358,9 @@ final class HabitRowViewModel: ObservableObject {
 
     private func latestCompletion() -> HabitCompletion? {
         guard let set = habit.completions as? Set<HabitCompletion>, !set.isEmpty else { return nil }
-        return set.sorted { (lhs, rhs) in
+        return set
+            .filter { !$0.isJournalOnly }
+            .sorted { (lhs, rhs) in
             (lhs.completedDate ?? .distantPast) > (rhs.completedDate ?? .distantPast)
         }.first
     }
@@ -339,7 +368,7 @@ final class HabitRowViewModel: ObservableObject {
     private var shouldPromptForJournal: Bool {
         if habit.isTimerHabit { return habit.timerGoalMetToday }
         if habit.isRoutineHabit { return habit.updatedGoalMetToday }
-        return true
+        return habit.goalMetToday
     }
 
     private func updateStreak() {

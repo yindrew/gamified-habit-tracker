@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreData
+import UIKit
 
 
 struct HabitRowView: View {
@@ -14,6 +15,7 @@ struct HabitRowView: View {
     @ObservedObject var habit: Habit
     let colorScheme: String
     @Binding var activeTimerHabit: Habit?
+    let onDelete: (Habit) -> Void
     @Environment(\.managedObjectContext) private var viewContext
 
     // Animation for Button
@@ -23,13 +25,19 @@ struct HabitRowView: View {
     @State private var showFocusMode = false
     @State private var journalCompletion: HabitCompletion?
     @State private var hasShownJournalForCurrentCompletion = false
+    @State private var showingCustomLogPrompt = false
+    @State private var customLogValueText = ""
+    @State private var customLogValidationMessage: String?
+    @State private var showingEditHabit = false
+    @State private var showingDeleteConfirmation = false
 
     @StateObject private var viewModel: HabitRowViewModel
 
-    init(habit: Habit, colorScheme: String, activeTimerHabit: Binding<Habit?>) {
+    init(habit: Habit, colorScheme: String, activeTimerHabit: Binding<Habit?>, onDelete: @escaping (Habit) -> Void = { _ in }) {
         self._habit = ObservedObject(wrappedValue: habit)
         self.colorScheme = colorScheme
         self._activeTimerHabit = activeTimerHabit
+        self.onDelete = onDelete
         self._viewModel = StateObject(wrappedValue: HabitRowViewModel(habit: habit))
     }
 
@@ -164,11 +172,6 @@ struct HabitRowView: View {
                                 .font(.caption2)
                                 .foregroundColor(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
                                 .fontWeight(viewModel.isCompletedForDisplay ? .bold : .medium)
-                            if let extra = viewModel.overrunText {
-                                Text(extra)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
                         }
                     }
                 }
@@ -188,22 +191,32 @@ struct HabitRowView: View {
                     }
                 }
             )
-            
-            // if !habit.isEtherealHabit && viewModel.hasAnyCompletion {
-            //     Spacer(minLength: 8)
-            //     Button(action: {
-            //         _ = viewModel.prepareAdditionalReflection()
-            //     }) {
-            //         Image(systemName: "text.badge.plus")
-            //             .font(.title3)
-            //             .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
-            //             .padding(10)
-            //             .background(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.12))
-            //             .clipShape(Circle())
-            //     }
-            //     .buttonStyle(.plain)
-            // }
 
+        }
+        .contentShape(Rectangle())
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                _ = viewModel.prepareAdditionalReflection(createNewJournalEntry: true)
+            } label: {
+                Label("Add Journal", systemImage: "square.and.pencil")
+            }
+            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+
+            Button {
+                presentCustomLogPrompt()
+            } label: {
+                Label("Custom Log", systemImage: "plus.rectangle.on.rectangle")
+            }
+            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+            .disabled(habit.isEtherealHabit)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                showingEditHabit = true
+            } label: {
+                Label("Edit", systemImage: "slider.horizontal.3")
+            }
+            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 12)
@@ -260,22 +273,268 @@ struct HabitRowView: View {
             )
         }
         .onChange(of: viewModel.pendingJournalEntry) { _, newEntry in
-            if let entry = newEntry {
-                if !viewModel.isCompletedForDisplay || !hasShownJournalForCurrentCompletion {
-                    journalCompletion = entry
-                    hasShownJournalForCurrentCompletion = true
-                }
-                viewModel.pendingJournalEntry = nil
+            guard let entry = newEntry else { return }
+
+            if entry.isJournalOnly {
+                journalCompletion = entry
+            } else if !viewModel.isCompletedForDisplay || !hasShownJournalForCurrentCompletion {
+                journalCompletion = entry
+                hasShownJournalForCurrentCompletion = true
             }
+
+            viewModel.pendingJournalEntry = nil
         }
         .sheet(item: $journalCompletion) { completion in
             JournalEntrySheet(completion: completion) {
                 journalCompletion = nil
             }
         }
+        .sheet(isPresented: $showingCustomLogPrompt) {
+            ZStack(alignment: .top) {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    CustomLogPromptView(
+                        fieldLabel: customLogFieldLabel,
+                        unitLabel: customLogUnitLabel,
+                        valueText: $customLogValueText,
+                        validationMessage: customLogValidationMessage,
+                        allowsDecimal: allowsDecimalInput,
+                        onCancel: { showingCustomLogPrompt = false },
+                        onSave: { attemptCustomLogSave() }
+                    )
+                    .padding(.top, 16)
+                    .padding(.horizontal, 20)
+
+                    Spacer()
+                }
+            }
+            .presentationDetents([.fraction(0.3), .medium])
+            .presentationDragIndicator(.hidden)
+        }
+        .sheet(isPresented: $showingEditHabit) {
+            HabitFormView(mode: .edit(habit))
+        }
+        .confirmationDialog("Delete Habit?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                onDelete(habit)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will remove the habit and its future tracking. Past data remains available." )
+        }
     }
     
+    // MARK: - Custom Log Helpers
+
+    private func presentCustomLogPrompt() {
+        guard !habit.isEtherealHabit else { return }
+        customLogValidationMessage = nil
+        customLogValueText = defaultCustomLogValue
+        showingCustomLogPrompt = true
+    }
+
+    private var defaultCustomLogValue: String {
+        if habit.isTimerHabit {
+            return formattedValue(15, allowDecimals: true)
+        }
+        if habit.isRoutineHabit {
+            return "1"
+        }
+        let base = habit.metricValue > 0 ? habit.metricValue : 1
+        return formattedValue(base, allowDecimals: allowsDecimalInput)
+    }
+
+    private var customLogFieldLabel: String {
+        if habit.isTimerHabit { return "Minutes" }
+        if habit.isRoutineHabit { return "Steps" }
+        return habit.metricUnit ?? "Amount"
+    }
+
+    private var customLogUnitLabel: String? {
+        if habit.isTimerHabit { return "min" }
+        if habit.isRoutineHabit { return nil }
+        return habit.metricUnit
+    }
+
+    private var allowsDecimalInput: Bool {
+        if habit.isTimerHabit { return true }
+        if habit.isRoutineHabit { return false }
+        return habit.metricValue.truncatingRemainder(dividingBy: 1) != 0
+    }
+
+    private func attemptCustomLogSave() {
+        guard let value = parsedCustomLogValue() else {
+            customLogValidationMessage = "Enter a value greater than zero."
+            return
+        }
+
+        if habit.isRoutineHabit {
+            let intValue = Int(value.rounded(.towardZero))
+            guard intValue > 0 else {
+                customLogValidationMessage = "Add at least one step."
+                return
+            }
+            logCustomValue(amount: Double(intValue))
+            showingCustomLogPrompt = false
+            customLogValueText = ""
+            return
+        }
+
+        logCustomValue(amount: value)
+        showingCustomLogPrompt = false
+        customLogValueText = ""
+    }
+
+    private func parsedCustomLogValue() -> Double? {
+        let trimmed = customLogValueText
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Double(trimmed), value > 0 else { return nil }
+        return value
+    }
+
+    private func formattedValue(_ value: Double, allowDecimals: Bool) -> String {
+        if !allowDecimals || value.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(Int(value.rounded(.towardZero)))
+        }
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    }
+
     // Press-hold logic is encapsulated by PressHoldRingButton
+
+    private func logCustomValue(amount: Double) {
+        let habitWasCompleted = viewModel.isCompletedForDisplay
+        let value = amount
+        guard value > 0 else { return }
+        if habit.isEtherealHabit { return }
+
+        if habit.isRoutineHabit {
+            logRoutineSteps(count: Int(value.rounded(.towardZero)))
+            hasShownJournalForCurrentCompletion = false
+            return
+        }
+
+        let now = Date()
+
+        if habit.isTimerHabit {
+            let minutesBefore = habit.timerMinutesToday
+            let completion = HabitCompletion(context: viewContext)
+            completion.id = UUID()
+            completion.completedDate = now
+            completion.habit = habit
+            completion.timerDuration = value
+
+            let minutesAfter = minutesBefore + value
+            if minutesBefore < habit.goalValue && minutesAfter >= habit.goalValue {
+                habit.totalCompletions += 1
+                habit.lastCompletedDate = now
+                updateHabitStreakAfterCompletion()
+            }
+        } else {
+            let metricPerCompletion = habit.metricValue > 0 ? habit.metricValue : 1
+            let progressBefore = habit.currentProgress
+
+            let completion = HabitCompletion(context: viewContext)
+            completion.id = UUID()
+            completion.completedDate = now
+            completion.habit = habit
+            completion.metricAmount = value
+
+            let progressAfter = progressBefore + value
+            let previousCompletionCount = Int32((progressBefore / metricPerCompletion).rounded(.down))
+            let newCompletionCount = Int32((progressAfter / metricPerCompletion).rounded(.down))
+            let completionDelta = max(0, newCompletionCount - previousCompletionCount)
+
+            if completionDelta > 0 {
+                habit.totalCompletions += completionDelta
+                habit.lastCompletedDate = now
+            }
+
+            if progressBefore < habit.goalValue && progressAfter >= habit.goalValue {
+                updateHabitStreakAfterCompletion()
+            }
+        }
+
+        do {
+            try viewContext.save()
+            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
+            hasShownJournalForCurrentCompletion = false
+            if !habitWasCompleted && shouldPromptForJournal() {
+                _ = viewModel.prepareAdditionalReflection()
+            }
+        } catch {
+            viewContext.rollback()
+        }
+    }
+
+    private func logRoutineSteps(count: Int) {
+        let stepsToMark = max(0, count)
+        guard stepsToMark > 0 else { return }
+        let steps = habit.routineStepsArray
+        guard !steps.isEmpty else { return }
+
+        var remaining = stepsToMark
+        var completed = habit.completedStepsToday
+
+        for index in 0..<steps.count where remaining > 0 {
+            if !completed.contains(index) {
+                viewModel.toggleStep(at: index)
+                completed.insert(index)
+                remaining -= 1
+            }
+        }
+    }
+
+    private func updateHabitStreakAfterCompletion() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        guard let lastCompleted = habit.lastCompletedDate else {
+            habit.currentStreak = 1
+            habit.longestStreak = max(habit.longestStreak, 1)
+            return
+        }
+
+        let lastCompletedDay = calendar.startOfDay(for: lastCompleted)
+        let daysBetween = calendar.dateComponents([.day], from: lastCompletedDay, to: today).day ?? 0
+
+        if daysBetween == 0 {
+            return
+        } else if daysBetween == 1 {
+            habit.currentStreak += 1
+        } else {
+            habit.currentStreak = 1
+        }
+
+        habit.longestStreak = max(habit.longestStreak, habit.currentStreak)
+    }
+
+    private func deleteHabit() {
+        withAnimation {
+            habit.isActive = false
+            if activeTimerHabit?.objectID == habit.objectID {
+                activeTimerHabit = nil
+            }
+        }
+
+        do {
+            try viewContext.save()
+            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
+        } catch {
+            viewContext.rollback()
+        }
+    }
+
+    private func shouldPromptForJournal() -> Bool {
+        if habit.isTimerHabit { return habit.timerGoalMetToday }
+        if habit.isRoutineHabit { return habit.updatedGoalMetToday }
+        return habit.goalMetToday
+    }
 
     private func handleMainHoldCompleted() {
         if habit.canUseCopingPlanToday {
@@ -400,5 +659,76 @@ private struct JournalEntrySheet: View {
         }
         dismiss()
         onFinish()
+    }
+}
+
+private struct CustomLogPromptView: View {
+    let fieldLabel: String
+    let unitLabel: String?
+    @Binding var valueText: String
+    let validationMessage: String?
+    let allowsDecimal: Bool
+    let onCancel: () -> Void
+    let onSave: () -> Void
+
+    @FocusState private var isFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Log Progress")
+                    .font(.headline)
+                Text("Log custom values toward your goal")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    TextField(fieldLabel, text: $valueText)
+                        .keyboardType(allowsDecimal ? .decimalPad : .numberPad)
+                        .focused($isFieldFocused)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(12)
+
+                    if let unit = unitLabel, !unit.isEmpty {
+                        Text(unit)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(10)
+                    }
+                }
+
+                if let validation = validationMessage {
+                    Text(validation)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                }
+            }
+
+            HStack(spacing: 16) {
+                Button("Cancel") { onCancel() }
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Save") { onSave() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 420)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 20, y: 12)
+        .onAppear {
+            DispatchQueue.main.async {
+                isFieldFocused = true
+            }
+        }
     }
 }
