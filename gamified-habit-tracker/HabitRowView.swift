@@ -97,58 +97,59 @@ struct HabitRowView: View {
             }
             
             // Individual steps with details and hold rings (conditionally shown)
-                if viewModel.isRoutineExpanded {
-                    let steps = habit.routineStepsArray
-                    let completedSteps = habit.completedStepsToday
-                    
-                    if !steps.isEmpty {
-                        VStack(alignment: .leading, spacing: routineSpacing) {
-                            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                                RoutineStepView(
-                                    step: step,
-                                    index: index,
-                                    isCompleted: completedSteps.contains(index),
+            if viewModel.isRoutineExpanded {
+                let steps = habit.routineStepsArray
+                let completedSteps = habit.completedStepsToday
+                
+                if !steps.isEmpty {
+                    VStack(alignment: .leading, spacing: routineSpacing) {
+                        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                            RoutineStepView(
+                                step: step,
+                                index: index,
+                                isCompleted: completedSteps.contains(index),
                                 habitColor: Color(hex: habit.colorHex ?? "#007AFF"),
                                 onComplete: { viewModel.toggleStep(at: index) }
                             )
                         }
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+                }   
             }
         }
     }
-    
+
     var body: some View {
+        mainContentView
+            .modifier(HabitRowModifiers(
+                habit: habit,
+                viewModel: viewModel,
+                showFocusMode: $showFocusMode,
+                journalCompletion: $journalCompletion,
+                hasShownJournalForCurrentCompletion: $hasShownJournalForCurrentCompletion,
+                showingCustomLogPrompt: $showingCustomLogPrompt,
+                customLogValueText: $customLogValueText,
+                customLogValidationMessage: $customLogValidationMessage,
+                showingEditHabit: $showingEditHabit,
+                showingDeleteConfirmation: $showingDeleteConfirmation,
+                activeTimerHabit: $activeTimerHabit,
+                onDelete: onDelete,
+                presentCustomLogPrompt: presentCustomLogPrompt,
+                attemptCustomLogSave: attemptCustomLogSave,
+                verticalPadding: verticalPadding,
+                horizontalPadding: horizontalPadding
+            ))
+    }
+    
+    private var mainContentView: some View {
+
         HStack(alignment: rowAlignment, spacing: horizontalSpacing) {
             // Habit Icon
             iconView
 
             VStack(alignment: .leading, spacing: detailSpacing) {
-                HStack(alignment: .center) {
-                    Text(habit.name ?? "Unnamed Habit")
-                        .font(titleFont)
-                        .foregroundColor(.primary)
-
-                    Spacer()
-
-                    if habit.currentStreak > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "flame.fill")
-                                .font(.caption)
-                                .foregroundColor(.orange)
-                            Text("\(habit.currentStreak)")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.orange)
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.1))
-                        .clipShape(Capsule())
-                    }
-                }
-
+                habitTitleView
+                
                 if isWideView, let description = habit.habitDescription, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(description)
                         .font(.subheadline)
@@ -159,29 +160,11 @@ struct HabitRowView: View {
                 if habit.isRoutineHabit {
                     routineStepsView
                 } else {
-                    HStack(spacing: 8) {
-                        ProgressView(value: viewModel.progressPercentage)
-                            .progressViewStyle(LinearProgressViewStyle(tint: Color(hex: habit.colorHex ?? "#007AFF")))
-                            .frame(height: progressBarHeight)
-                            .animation(.linear(duration: 0.25), value: viewModel.progressPercentage)
-
-                        HStack(spacing: 6) {
-                            Text(viewModel.progressText)
-                                .font(.caption2)
-                                .foregroundColor(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
-                                .fontWeight(viewModel.isCompletedForDisplay ? .bold : .medium)
-                        }
-                    }
+                    progressView
                 }
 
                 if isWideView {
-                    HStack(spacing: 12) {
-                        if let typeChip = typeChip {
-                            infoChip(icon: typeChip.icon, text: typeChip.text)
-                        }
-
-                        infoChip(icon: "calendar", text: scheduleChipText)
-                    }
+                    infoChipsView
                 }
             }
 
@@ -189,135 +172,57 @@ struct HabitRowView: View {
         }
         .padding(.top, topPadding)
         .contentShape(Rectangle())
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                _ = viewModel.prepareAdditionalReflection(createNewJournalEntry: true)
-            } label: {
-                Label("Journal", systemImage: "square.and.pencil")
-            }
-            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+    }
+    
+    private var habitTitleView: some View {
+        HStack(alignment: .center) {
+            Text(habit.name ?? "Unnamed Habit")
+                .font(titleFont)
+                .foregroundColor(.primary)
 
-            Button {
-                presentCustomLogPrompt()
-            } label: {
-                Label("Log", systemImage: "plus.rectangle.on.rectangle")
-            }
-            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
-            .disabled(habit.isEtherealHabit)
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            Button {
-                showingEditHabit = true
-            } label: {
-                Label("Edit", systemImage: "slider.horizontal.3")
-            }
-            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
-        }
-        .padding(.vertical, verticalPadding)
-        .padding(.horizontal, horizontalPadding)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == .light ? 0.1 : 0.2) : Color.clear)
-        )
-        .animation(.easeInOut(duration: 0.3), value: viewModel.isCompletedForDisplay)
-        .onChange(of: viewModel.didAutoStopAtGoal) { _, didStop in
-            if didStop, showFocusMode {
-                // Close focus mode when the goal is reached automatically
-                showFocusMode = false
-                // Reset the flag after handling
-                viewModel.didAutoStopAtGoal = false
-            }
-        }
-        .onChange(of: viewModel.isCompletedForDisplay) { _, isCompleted in
-            if !isCompleted {
-                hasShownJournalForCurrentCompletion = false
-            }
-        }
-        .onAppear {
-            // Provide Core Data context to the view model
-            viewModel.setContext(viewContext)
-            if !viewModel.isCompletedForDisplay {
-                hasShownJournalForCurrentCompletion = false
-            }
-        }
-        .onDisappear {
-            // Clean up timer if this view disappears
-            if viewModel.isTimerRunning { viewModel.pauseTimer(saveProgress: true); activeTimerHabit = nil }
-        }
-        // Full screen focus mode for timers
-        .fullScreenCover(isPresented: $showFocusMode) {
-            FocusModeView(
-                habit: habit,
-                isPresented: $showFocusMode,
-                elapsedTime: Binding(
-                    get: { viewModel.totalElapsedSecondsToday },
-                    set: { _ in }
-                ),
-                isRunning: viewModel.isTimerRunning,
-                onToggleTimer: {
-                    if viewModel.isTimerRunning {
-                        viewModel.pauseTimer(saveProgress: true)
-                        activeTimerHabit = nil
-                    } else {
-                        // If already met goal, resume in overrun; else count toward goal.
-                        let allowOverrun = habit.timerGoalMetToday || ((viewModel.totalElapsedSecondsToday / 60.0) >= habit.goalValue)
-                        viewModel.startTimer(allowOverrun: allowOverrun)
-                        activeTimerHabit = habit
-                    }
+            Spacer()
+
+            if habit.currentStreak > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: "flame.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text("\(habit.currentStreak)")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.orange)
                 }
-            )
-        }
-        .onChange(of: viewModel.pendingJournalEntry) { _, newEntry in
-            guard let entry = newEntry else { return }
-
-            if entry.isJournalOnly {
-                journalCompletion = entry
-            } else if !viewModel.isCompletedForDisplay || !hasShownJournalForCurrentCompletion {
-                journalCompletion = entry
-                hasShownJournalForCurrentCompletion = true
-            }
-
-            viewModel.pendingJournalEntry = nil
-        }
-        .sheet(item: $journalCompletion) { completion in
-            JournalEntrySheet(completion: completion) {
-                journalCompletion = nil
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(Capsule())
             }
         }
-        .sheet(isPresented: $showingCustomLogPrompt) {
-            ZStack(alignment: .top) {
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+    }
+    
+    private var progressView: some View {
+        HStack(spacing: 8) {
+            ProgressView(value: viewModel.progressPercentage)
+                .progressViewStyle(LinearProgressViewStyle(tint: Color(hex: habit.colorHex ?? "#007AFF")))
+                .frame(height: progressBarHeight)
+                .animation(.linear(duration: 0.25), value: viewModel.progressPercentage)
 
-                VStack(spacing: 0) {
-                    CustomLogPromptView(
-                        fieldLabel: customLogFieldLabel,
-                        unitLabel: customLogUnitLabel,
-                        valueText: $customLogValueText,
-                        validationMessage: customLogValidationMessage,
-                        allowsDecimal: allowsDecimalInput,
-                        onCancel: { showingCustomLogPrompt = false },
-                        onSave: { attemptCustomLogSave() }
-                    )
-                    .padding(.top, 16)
-                    .padding(.horizontal, 20)
+            HStack(spacing: 6) {
+                Text(viewModel.progressText)
+                    .font(.caption2)
+                    .foregroundColor(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
+                    .fontWeight(viewModel.isCompletedForDisplay ? .bold : .medium)
+            }
+        }
+    }
+    
+    private var infoChipsView: some View {
+        HStack(spacing: 12) {
+            if let typeChip = typeChip {
+                infoChip(icon: typeChip.icon, text: typeChip.text)
+            }
 
-                    Spacer()
-                }
-            }
-            .presentationDetents([.fraction(0.3), .medium])
-            .presentationDragIndicator(.hidden)
-        }
-        .sheet(isPresented: $showingEditHabit) {
-            HabitFormView(mode: .edit(habit))
-        }
-        .confirmationDialog("Delete Habit?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                onDelete(habit)
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This will remove the habit and its future tracking. Past data remains available." )
+            infoChip(icon: "calendar", text: scheduleChipText)
         }
     }
     
@@ -723,6 +628,7 @@ private struct CustomLogPromptView: View {
     }
 }
 
+
 private extension HabitRowView {
     var iconSize: CGFloat { isWideView ? 60 : 50 }
 
@@ -844,5 +750,235 @@ private extension HabitRowView {
         .padding(.vertical, 5)
         .background(Color(.secondarySystemBackground))
         .clipShape(Capsule())
+    }
+}
+
+// MARK: - View Modifiers
+
+private struct HabitRowModifiers: ViewModifier {
+    @ObservedObject var habit: Habit
+    @ObservedObject var viewModel: HabitRowViewModel
+    @Binding var showFocusMode: Bool
+    @Binding var journalCompletion: HabitCompletion?
+    @Binding var hasShownJournalForCurrentCompletion: Bool
+    @Binding var showingCustomLogPrompt: Bool
+    @Binding var customLogValueText: String
+    @Binding var customLogValidationMessage: String?
+    @Binding var showingEditHabit: Bool
+    @Binding var showingDeleteConfirmation: Bool
+    @Binding var activeTimerHabit: Habit?
+    let onDelete: (Habit) -> Void
+    let presentCustomLogPrompt: () -> Void
+    let attemptCustomLogSave: () -> Void
+    let verticalPadding: CGFloat
+    let horizontalPadding: CGFloat
+    
+    @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.colorScheme) private var colorScheme
+    
+    func body(content: Content) -> some View {
+        content
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                trailingSwipeActions
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                leadingSwipeActions
+            }
+            .padding(.vertical, verticalPadding)
+            .padding(.horizontal, horizontalPadding)
+            .background(backgroundView)
+            .animation(.easeInOut(duration: 0.3), value: viewModel.isCompletedForDisplay)
+            .onChange(of: viewModel.didAutoStopAtGoal) { _, didStop in
+                handleAutoStopChange(didStop)
+            }
+            .onChange(of: viewModel.isCompletedForDisplay) { _, isCompleted in
+                handleCompletionChange(isCompleted)
+            }
+            .onAppear {
+                handleOnAppear()
+            }
+            .onDisappear {
+                handleOnDisappear()
+            }
+            .fullScreenCover(isPresented: $showFocusMode) {
+                focusModeView
+            }
+            .onChange(of: viewModel.pendingJournalEntry) { _, newEntry in
+                handleJournalEntryChange(newEntry)
+            }
+            .sheet(item: $journalCompletion) { completion in
+                JournalEntrySheet(completion: completion) {
+                    journalCompletion = nil
+                }
+            }
+            .sheet(isPresented: $showingCustomLogPrompt) {
+                customLogPromptSheet
+            }
+            .sheet(isPresented: $showingEditHabit) {
+                HabitFormView(mode: .edit(habit))
+            }
+            .confirmationDialog("Delete Habit?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+                deleteConfirmationActions
+            } message: {
+                Text("This will remove the habit and its future tracking. Past data remains available.")
+            }
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var backgroundView: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == .light ? 0.1 : 0.2) : Color.clear)
+    }
+    
+    private var trailingSwipeActions: some View {
+        Group {
+            Button {
+                _ = viewModel.prepareAdditionalReflection(createNewJournalEntry: true)
+            } label: {
+                Label("Add Journal Entry", systemImage: "bookJournal", systemImage: "square.and.pencil")
+            }
+            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+
+            Button {
+                presentCustomLogPrompt()
+            } label: {
+                Label("Log Progress", systemImage: "plus.rectangle.on.rectangle")
+            }
+            .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+            .disabled(habit.isEtherealHabit)
+        }
+    }
+    
+    private var leadingSwipeActions: some View {
+        Button {
+            showingEditHabit = true
+        } label: {
+            Label("Edit", systemImage: "slider.horizontal.3")
+        }
+        .tint(Color(hex: habit.colorHex ?? "#007AFF"))
+    }
+    
+    private var focusModeView: some View {
+        FocusModeView(
+            habit: habit,
+            isPresented: $showFocusMode,
+            elapsedTime: Binding(
+                get: { viewModel.totalElapsedSecondsToday },
+                set: { _ in }
+            ),
+            isRunning: viewModel.isTimerRunning,
+            onToggleTimer: {
+                if viewModel.isTimerRunning {
+                    viewModel.pauseTimer(saveProgress: true)
+                    activeTimerHabit = nil
+                } else {
+                    // If already met goal, resume in overrun; else count toward goal.
+                    let allowOverrun = habit.timerGoalMetToday || ((viewModel.totalElapsedSecondsToday / 60.0) >= habit.goalValue)
+                    viewModel.startTimer(allowOverrun: allowOverrun)
+                    activeTimerHabit = habit
+                }
+            }
+        )
+    }
+    
+    private var customLogPromptSheet: some View {
+        ZStack(alignment: .top) {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                CustomLogPromptView(
+                    fieldLabel: customLogFieldLabel,
+                    unitLabel: customLogUnitLabel,
+                    valueText: $customLogValueText,
+                    validationMessage: customLogValidationMessage,
+                    allowsDecimal: allowsDecimalInput,
+                    onCancel: { showingCustomLogPrompt = false },
+                    onSave: { attemptCustomLogSave() }
+                )
+                .padding(.top, 16)
+                .padding(.horizontal, 20)
+
+                Spacer()
+            }
+        }
+        .presentationDetents([.fraction(0.3), .medium])
+        .presentationDragIndicator(.hidden)
+    }
+    
+    private var deleteConfirmationActions: some View {
+        Group {
+            Button("Delete", role: .destructive) {
+                onDelete(habit)
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+    }
+    
+    // MARK: - Helper Properties
+    
+    private var customLogFieldLabel: String {
+        if habit.isTimerHabit { return "Minutes" }
+        if habit.isRoutineHabit { return "Steps" }
+        return habit.metricUnit ?? "Amount"
+    }
+
+    private var customLogUnitLabel: String? {
+        if habit.isTimerHabit { return "min" }
+        if habit.isRoutineHabit { return nil }
+        return habit.metricUnit
+    }
+
+    private var allowsDecimalInput: Bool {
+        if habit.isTimerHabit { return true }
+        if habit.isRoutineHabit { return false }
+        return habit.metricValue.truncatingRemainder(dividingBy: 1) != 0
+    }
+    
+    // MARK: - Event Handlers
+    
+    private func handleAutoStopChange(_ didStop: Bool) {
+        if didStop, showFocusMode {
+            // Close focus mode when the goal is reached automatically
+            showFocusMode = false
+            // Reset the flag after handling
+            viewModel.didAutoStopAtGoal = false
+        }
+    }
+    
+    private func handleCompletionChange(_ isCompleted: Bool) {
+        if !isCompleted {
+            hasShownJournalForCurrentCompletion = false
+        }
+    }
+    
+    private func handleOnAppear() {
+        // Provide Core Data context to the view model
+        viewModel.setContext(viewContext)
+        if !viewModel.isCompletedForDisplay {
+            hasShownJournalForCurrentCompletion = false
+        }
+    }
+    
+    private func handleOnDisappear() {
+        // Clean up timer if this view disappears
+        if viewModel.isTimerRunning { 
+            viewModel.pauseTimer(saveProgress: true)
+            activeTimerHabit = nil 
+        }
+    }
+    
+    private func handleJournalEntryChange(_ newEntry: HabitCompletion?) {
+        guard let entry = newEntry else { return }
+
+        if entry.isJournalOnly {
+            journalCompletion = entry
+        } else if !viewModel.isCompletedForDisplay || !hasShownJournalForCurrentCompletion {
+            journalCompletion = entry
+            hasShownJournalForCurrentCompletion = true
+        }
+
+        viewModel.pendingJournalEntry = nil
     }
 }
