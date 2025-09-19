@@ -836,7 +836,7 @@ private struct HabitRowModifiers: ViewModifier {
             Button {
                 _ = viewModel.prepareAdditionalReflection(createNewJournalEntry: true)
             } label: {
-                Label("Add Journal Entry", systemImage: "bookJournal", systemImage: "square.and.pencil")
+                Label("Add Journal Entry", systemImage: "book.pages")
             }
             .tint(Color(hex: habit.colorHex ?? "#007AFF"))
 
@@ -846,8 +846,9 @@ private struct HabitRowModifiers: ViewModifier {
                 Label("Log Progress", systemImage: "plus.rectangle.on.rectangle")
             }
             .tint(Color(hex: habit.colorHex ?? "#007AFF"))
-            .disabled(habit.isEtherealHabit)
         }
+        .disabled(habit.isEtherealHabit)
+
     }
     
     private var leadingSwipeActions: some View {
