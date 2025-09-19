@@ -13,10 +13,11 @@ import UIKit
 struct HabitRowView: View {
 
     @ObservedObject var habit: Habit
-    let colorScheme: String
+    let isWideView: Bool
     @Binding var activeTimerHabit: Habit?
     let onDelete: (Habit) -> Void
     @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.colorScheme) private var colorScheme
 
     // Animation for Button
     @State private var showingCompletionAnimation = false
@@ -33,9 +34,9 @@ struct HabitRowView: View {
 
     @StateObject private var viewModel: HabitRowViewModel
 
-    init(habit: Habit, colorScheme: String, activeTimerHabit: Binding<Habit?>, onDelete: @escaping (Habit) -> Void = { _ in }) {
+    init(habit: Habit, isWideView: Bool = false, activeTimerHabit: Binding<Habit?>, onDelete: @escaping (Habit) -> Void = { _ in }) {
         self._habit = ObservedObject(wrappedValue: habit)
-        self.colorScheme = colorScheme
+        self.isWideView = isWideView
         self._activeTimerHabit = activeTimerHabit
         self.onDelete = onDelete
         self._viewModel = StateObject(wrappedValue: HabitRowViewModel(habit: habit))
@@ -45,7 +46,7 @@ struct HabitRowView: View {
     // Timer running state is tracked in the view model
     
     private var routineStepsView: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: routineSpacing) {
             // Progress bar with toggle button
             let progress = habit.routineProgress
             HStack(spacing: 8) {
@@ -71,7 +72,7 @@ struct HabitRowView: View {
                         ZStack {
                             Circle()
                                 .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.1))
-                                .frame(width: 30, height: 30)
+                                .frame(width: routineToggleSize, height: routineToggleSize)
                             
                             Image(systemName: "chevron.up")
                                 .font(.caption)
@@ -83,7 +84,7 @@ struct HabitRowView: View {
                         ZStack {
                             Circle()
                                 .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.1))
-                                .frame(width: 30, height: 30)
+                                .frame(width: routineToggleSize, height: routineToggleSize)
                             
                             Image(systemName: "chevron.down")
                                 .font(.caption)
@@ -96,17 +97,17 @@ struct HabitRowView: View {
             }
             
             // Individual steps with details and hold rings (conditionally shown)
-            if viewModel.isRoutineExpanded {
-                let steps = habit.routineStepsArray
-                let completedSteps = habit.completedStepsToday
-                
-                if !steps.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                            RoutineStepView(
-                                step: step,
-                                index: index,
-                                isCompleted: completedSteps.contains(index),
+                if viewModel.isRoutineExpanded {
+                    let steps = habit.routineStepsArray
+                    let completedSteps = habit.completedStepsToday
+                    
+                    if !steps.isEmpty {
+                        VStack(alignment: .leading, spacing: routineSpacing) {
+                            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                                RoutineStepView(
+                                    step: step,
+                                    index: index,
+                                    isCompleted: completedSteps.contains(index),
                                 habitColor: Color(hex: habit.colorHex ?? "#007AFF"),
                                 onComplete: { viewModel.toggleStep(at: index) }
                             )
@@ -119,27 +120,18 @@ struct HabitRowView: View {
     }
     
     var body: some View {
-        HStack(alignment: .center, spacing: 15) {
+        HStack(alignment: rowAlignment, spacing: horizontalSpacing) {
             // Habit Icon
-            ZStack {
-                Circle()
-                    .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(0.1))
-                    .frame(width: 50, height: 50)
-                
-                Image(systemName: habit.icon ?? "star")
-                    .font(.title2)
-                    .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
+            iconView
+
+            VStack(alignment: .leading, spacing: detailSpacing) {
                 HStack(alignment: .center) {
                     Text(habit.name ?? "Unnamed Habit")
-                        .font(.headline)
+                        .font(titleFont)
                         .foregroundColor(.primary)
-                    
+
                     Spacer()
-                    
-                    // Streak indicator
+
                     if habit.currentStreak > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "flame.fill")
@@ -156,15 +148,21 @@ struct HabitRowView: View {
                         .clipShape(Capsule())
                     }
                 }
-                
-                // Progress bar or routine steps
+
+                if isWideView, let description = habit.habitDescription, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(description)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+
                 if habit.isRoutineHabit {
                     routineStepsView
                 } else {
                     HStack(spacing: 8) {
                         ProgressView(value: viewModel.progressPercentage)
                             .progressViewStyle(LinearProgressViewStyle(tint: Color(hex: habit.colorHex ?? "#007AFF")))
-                            .frame(height: 4)
+                            .frame(height: progressBarHeight)
                             .animation(.linear(duration: 0.25), value: viewModel.progressPercentage)
 
                         HStack(spacing: 6) {
@@ -175,37 +173,34 @@ struct HabitRowView: View {
                         }
                     }
                 }
-            }
-            
-            // Action buttons (extracted component)
-            HabitActionButtons(
-                ringColor: Color(hex: habit.colorHex ?? "#007AFF"),
-                showExpand: habit.isTimerHabit && viewModel.isTimerRunning,
-                mainFillColor: viewModel.buttonBackgroundColor,
-                mainIcon: viewModel.buttonIcon,
-                mainIconColor: viewModel.buttonIconColor,
-                onMainHoldCompleted: { handleMainHoldCompleted() },
-                onExpandHoldCompleted: {
-                    DispatchQueue.main.async {
-                        showFocusMode = true
+
+                if isWideView {
+                    HStack(spacing: 12) {
+                        if let typeChip = typeChip {
+                            infoChip(icon: typeChip.icon, text: typeChip.text)
+                        }
+
+                        infoChip(icon: "calendar", text: scheduleChipText)
                     }
                 }
-            )
+            }
 
+            actionButtonsView
         }
+        .padding(.top, topPadding)
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
                 _ = viewModel.prepareAdditionalReflection(createNewJournalEntry: true)
             } label: {
-                Label("Add Journal", systemImage: "square.and.pencil")
+                Label("Journal", systemImage: "square.and.pencil")
             }
             .tint(Color(hex: habit.colorHex ?? "#007AFF"))
 
             Button {
                 presentCustomLogPrompt()
             } label: {
-                Label("Custom Log", systemImage: "plus.rectangle.on.rectangle")
+                Label("Log", systemImage: "plus.rectangle.on.rectangle")
             }
             .tint(Color(hex: habit.colorHex ?? "#007AFF"))
             .disabled(habit.isEtherealHabit)
@@ -218,11 +213,11 @@ struct HabitRowView: View {
             }
             .tint(Color(hex: habit.colorHex ?? "#007AFF"))
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 12)
+        .padding(.vertical, verticalPadding)
+        .padding(.horizontal, horizontalPadding)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == "light" ? 0.1 : 0.2) : Color.clear)
+                .fill(viewModel.isCompletedForDisplay ? Color(hex: habit.colorHex ?? "#007AFF").opacity(colorScheme == .light ? 0.1 : 0.2) : Color.clear)
         )
         .animation(.easeInOut(duration: 0.3), value: viewModel.isCompletedForDisplay)
         .onChange(of: viewModel.didAutoStopAtGoal) { _, didStop in
@@ -725,10 +720,129 @@ private struct CustomLogPromptView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: Color.black.opacity(0.08), radius: 20, y: 12)
-        .onAppear {
-            DispatchQueue.main.async {
-                isFieldFocused = true
+    }
+}
+
+private extension HabitRowView {
+    var iconSize: CGFloat { isWideView ? 60 : 50 }
+
+    var iconFont: Font { isWideView ? .title : .title2 }
+
+    var iconBackgroundOpacity: Double { isWideView ? 0.12 : 0.1 }
+
+    var detailSpacing: CGFloat { isWideView ? 8 : 4 }
+
+    var horizontalSpacing: CGFloat { isWideView ? 20 : 15 }
+
+    var titleFont: Font { isWideView ? .title3 : .headline }
+
+    var progressBarHeight: CGFloat { isWideView ? 6 : 4 }
+
+    var topPadding: CGFloat {
+        if habit.isRoutineHabit {
+            return isWideView ? 10 : 6
+        }
+        return isWideView ? 4 : 0
+    }
+
+    var verticalPadding: CGFloat { isWideView ? 14 : 4 }
+
+    var horizontalPadding: CGFloat { isWideView ? 16 : 12 }
+
+    var routineSpacing: CGFloat { isWideView ? 8 : 6 }
+
+    var routineToggleSize: CGFloat { isWideView ? 34 : 30 }
+
+    var rowAlignment: VerticalAlignment { isWideView ? .center : .top }
+
+    var scheduleChipText: String {
+        if habit.isEtherealHabit {
+            return "Once"
+        }
+        switch habit.schedule {
+        case .weekly:
+            return "Custom Weekly"
+        case .monthly:
+            return "Custom Monthly"
+        default:
+            return habit.schedule.displayName
+        }
+    }
+
+    var typeChip: (icon: String, text: String)? {
+        if habit.isEtherealHabit {
+            return ("sparkles", "Task")
+        }
+        if habit.isRoutineHabit {
+            return ("checklist", "Routine")
+        }
+        if habit.isTimerHabit {
+            return ("timer", "Timer")
+        }
+        return ("number", "Frequency")
+    }
+
+    var iconView: some View {
+        let base = ZStack {
+            Circle()
+                .fill(Color(hex: habit.colorHex ?? "#007AFF").opacity(iconBackgroundOpacity))
+                .frame(width: iconSize, height: iconSize)
+
+            Image(systemName: habit.icon ?? "star")
+                .font(iconFont)
+                .foregroundColor(Color(hex: habit.colorHex ?? "#007AFF"))
+        }
+        .frame(width: iconSize, height: iconSize)
+
+        return Group {
+            if isWideView {
+                base
+                    .frame(minHeight: iconSize)
+                    .frame(maxHeight: .infinity, alignment: .center)
+            } else {
+                base
             }
         }
+    }
+
+    var actionButtonsView: some View {
+        let buttons = HabitActionButtons(
+            ringColor: Color(hex: habit.colorHex ?? "#007AFF"),
+            showExpand: habit.isTimerHabit && viewModel.isTimerRunning,
+            mainFillColor: viewModel.buttonBackgroundColor,
+            mainIcon: viewModel.buttonIcon,
+            mainIconColor: viewModel.buttonIconColor,
+            onMainHoldCompleted: { handleMainHoldCompleted() },
+            onExpandHoldCompleted: {
+                DispatchQueue.main.async {
+                    showFocusMode = true
+                }
+            }
+        )
+        .scaleEffect(isWideView ? 1.3 : 1.08)
+        .frame(minHeight: iconSize)
+
+        return Group {
+            if isWideView {
+                buttons.frame(maxHeight: .infinity, alignment: .center)
+            } else {
+                buttons
+            }
+        }
+    }
+
+    @ViewBuilder
+    func infoChip(icon: String, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(text)
+                .fontWeight(.semibold)
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(Capsule())
     }
 }

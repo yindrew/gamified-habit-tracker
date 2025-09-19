@@ -179,8 +179,12 @@ struct HabitFormView: View {
         return false
     }
     
+    private var menuItemLabel: String {
+        habitType == .ethereal ? "Task" : "Habit"
+    }
+
     private var navigationTitle: String {
-        isEditing ? "Edit Item" : "New Item"
+        isEditing ? "Edit \(menuItemLabel)" : "New \(menuItemLabel)"
     }
     
     private var saveButtonText: String {

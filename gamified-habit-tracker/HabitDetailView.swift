@@ -172,7 +172,7 @@ struct HabitDetailView: View {
     }
     
     private var menuItemLabel: String {
-        habit.isEtherealHabit ? "Habit" : "Task"
+        habit.isEtherealHabit ? "Task" : "Habit"
     }
     
     var body: some View {

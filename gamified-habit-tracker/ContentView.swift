@@ -10,13 +10,13 @@ import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
-    @State private var showingAddOptions = false
     @State private var activeAddSheet: AddHabitSheet?
     @State private var showCelebrationToast = false
     @State private var lastCelebrationDate: Date?
     @State private var showOnlyTodaysHabits = false
-    @AppStorage("colorScheme") private var colorScheme: String = "light"
     @State private var activeTimerHabit: Habit?
+    @AppStorage("colorScheme") private var colorSchemePreference: String = "system"
+    @AppStorage("habitLayoutStyle") private var habitLayoutStyle: String = "narrow"
 
     private enum AddHabitSheet: String, Identifiable {
         case standard
@@ -117,23 +117,6 @@ struct ContentView: View {
         return scheduledCount > 0 && scheduledCount == completedScheduledCount
     }
     
-    private var currentColorScheme: ColorScheme? {
-        switch colorScheme {
-        case "light": return .light
-        case "dark": return .dark
-        default: return .light
-        }
-    }
-    
-
-    private var themeIcon: String {
-        switch colorScheme {
-        case "light": return "sun.max"
-        case "dark": return "moon"
-        default: return "sun.max"
-        }
-    }
-
     var body: some View {
         NavigationView {
             ZStack {
@@ -149,7 +132,50 @@ struct ContentView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.large)
-            .toolbar { ToolbarItem(placement: .principal) { toolbarPrincipal } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button(action: toggleFilter) {
+                            Label(filterMenuTitle, systemImage: filterMenuIcon)
+                        }
+                        Button(action: toggleLayoutStyle) {
+                            Label(layoutMenuTitle, systemImage: layoutMenuIcon)
+                        }
+                        Button(action: toggleTheme) {
+                            Label(themeMenuTitle, systemImage: themeMenuIcon)
+                        }
+                        
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.title2)
+                            .fontWeight(.medium)
+                    }
+                    .accessibilityLabel(Text("View options"))
+                }
+
+                ToolbarItem(placement: .principal) { toolbarPrincipal }
+
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button {
+                            activeAddSheet = .standard
+                        } label: {
+                            Label("Add Recurring Habit", systemImage: "checkmark.circle")
+                        }
+
+                        Button {
+                            activeAddSheet = .ethereal
+                        } label: {
+                            Label("Add One Time Task", systemImage: "sparkles")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                            .fontWeight(.medium)
+                    }
+                    .accessibilityLabel(Text("Add"))
+                }
+            }
             .sheet(item: $activeAddSheet) { sheet in
                 switch sheet {
                 case .standard:
@@ -157,11 +183,6 @@ struct ContentView: View {
                 case .ethereal:
                     EtherealHabitQuickAddView()
                 }
-            }
-            .confirmationDialog("Add", isPresented: $showingAddOptions, titleVisibility: .visible) {
-                Button("Habit") { activeAddSheet = .standard }
-                Button("Task") { activeAddSheet = .ethereal }
-                Button("Cancel", role: .cancel) { }
             }
             .onChange(of: allHabitsCompletedToday) { _, _ in checkForCelebration() }
             .onAppear { checkForCelebration() }
@@ -176,7 +197,7 @@ struct ContentView: View {
         } else {
             HabitsListView(
                 sortedHabits: sortedHabits,
-                colorScheme: colorScheme,
+                isWideView: isWideView,
                 activeTimerHabit: $activeTimerHabit,
                 onDeleteHabit: deleteHabit
             )
@@ -203,29 +224,71 @@ struct ContentView: View {
     }
 
     private var toolbarPrincipal: some View {
-        HStack {
-            Text("Trackr")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        Text("Trackr")
+            .font(.largeTitle)
+            .fontWeight(.bold)
+    }
 
-            Spacer()
+    private var isWideView: Bool {
+        habitLayoutStyle == "wide"
+    }
 
-            FilterToggleView(
-                showOnlyTodaysHabits: $showOnlyTodaysHabits
-            )
+    private var filterMenuTitle: String {
+        showOnlyTodaysHabits ? "Show All Habits" : "Show Today's Habits"
+    }
 
-            // Theme toggle
-            Button(action: { withAnimation(.spring(response: 0.3)) { toggleTheme() } }) {
-                Image(systemName: themeIcon)
-                    .font(.title2)
-                    .fontWeight(.medium)
-            }
+    private var filterMenuIcon: String {
+        showOnlyTodaysHabits ? "square.grid.2x2" : "calendar"
+    }
 
-            Button(action: { showingAddOptions = true }) {
-                Image(systemName: "plus")
-                    .font(.title2)
-                    .fontWeight(.medium)
-            }
+    private var layoutMenuTitle: String {
+        isWideView ? "Use Narrow Layout" : "Use Wide Layout"
+    }
+
+    private var layoutMenuIcon: String {
+        isWideView ? "rectangle.split.2x1" : "rectangle.split.1x2"
+    }
+
+    private var currentColorScheme: ColorScheme? {
+        switch colorSchemePreference {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
+    }
+
+    private var themeMenuTitle: String {
+        switch colorSchemePreference {
+        case "light": return "Use Dark Mode"
+        case "dark": return "Use Light Mode"
+        default: return "Use Dark Mode"
+        }
+    }
+
+    private var themeMenuIcon: String {
+        colorSchemePreference == "dark" ? "sun.max" : "moon"
+    }
+
+    private func toggleFilter() {
+        withAnimation(.spring(response: 0.3)) {
+            showOnlyTodaysHabits.toggle()
+        }
+    }
+
+    private func toggleLayoutStyle() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            habitLayoutStyle = isWideView ? "narrow" : "wide"
+        }
+    }
+
+    private func toggleTheme() {
+        switch colorSchemePreference {
+        case "light":
+            colorSchemePreference = "dark"
+        case "dark":
+            colorSchemePreference = "light"
+        default:
+            colorSchemePreference = "dark"
         }
     }
     
@@ -245,18 +308,6 @@ struct ContentView: View {
         lastCelebrationDate = today
         showCelebrationToast = true
     }
-    
-    private func toggleTheme() {
-        switch colorScheme {
-        case "light":
-            colorScheme = "dark"
-        case "dark":
-            colorScheme = "light"
-        default:
-            colorScheme = "light"
-        }
-    }
-
 }
 
 
@@ -292,7 +343,7 @@ private struct EmptyHabitsView: View {
 
 private struct HabitsListView: View {
     let sortedHabits: [Habit]
-    let colorScheme: String
+    let isWideView: Bool
     @Binding var activeTimerHabit: Habit?
     let onDeleteHabit: (Habit) -> Void
 
@@ -301,7 +352,7 @@ private struct HabitsListView: View {
             ForEach(sortedHabits, id: \.objectID) { (habit: Habit) in
                 HabitRowView(
                     habit: habit,
-                    colorScheme: colorScheme,
+                    isWideView: isWideView,
                     activeTimerHabit: $activeTimerHabit,
                     onDelete: { _ in onDeleteHabit(habit) }
                 )
@@ -313,11 +364,13 @@ private struct HabitsListView: View {
                     }
                     .opacity(0) // invisible but tappable
                 )
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 4, leading: isWideView ? 12 : 0, bottom: 4, trailing: isWideView ? 12 : 0))
                 .listRowBackground(Color.clear)
             }
         }
         .listStyle(PlainListStyle())
+        .padding(.top, isWideView ? -12 : -20)
+        .contentMargins(.top, isWideView ? -8 : -12)
     }
 }
 
@@ -417,46 +470,6 @@ private struct EtherealHabitQuickAddView: View {
             print("[QuickAdd] Failed to create ethereal habit: \(error)")
             #endif
         }
-    }
-}
-
-private struct FilterToggleView: View {
-    @Binding var showOnlyTodaysHabits: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Button(action: { withAnimation(.spring(response: 0.3)) { showOnlyTodaysHabits = false } }) {
-                Text("All")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(showOnlyTodaysHabits ? .secondary : .primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(showOnlyTodaysHabits ? Color.clear : Color.accentColor.opacity(0.1))
-                    )
-            }
-
-            Button(action: { withAnimation(.spring(response: 0.3)) { showOnlyTodaysHabits = true } }) {
-                Text("Today")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(showOnlyTodaysHabits ? .primary : .secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(showOnlyTodaysHabits ? Color.accentColor.opacity(0.1) : Color.clear)
-                    )
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.1))
-        )
     }
 }
 

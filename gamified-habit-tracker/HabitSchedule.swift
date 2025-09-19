@@ -390,9 +390,6 @@ extension Habit {
     var completedStepsToday: Set<Int> {
         guard isRoutineHabit else { return [] }
         
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
         let todayCompletions = todaysCompletions
         var completedSteps: Set<Int> = []
         for completion in todayCompletions {
@@ -433,9 +430,6 @@ extension Habit {
     /// Get total timer minutes completed today
     var timerMinutesToday: Double {
         guard isTimerHabit else { return 0.0 }
-        
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
         
         let todayCompletions = todaysCompletions
 
