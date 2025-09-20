@@ -14,7 +14,6 @@ struct HabitRowView: View {
 
     @ObservedObject var habit: Habit
     let isWideView: Bool
-    @Binding var activeTimerHabit: Habit?
     let onDelete: (Habit) -> Void
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.colorScheme) private var colorScheme
@@ -34,10 +33,9 @@ struct HabitRowView: View {
 
     @StateObject private var viewModel: HabitRowViewModel
 
-    init(habit: Habit, isWideView: Bool = false, activeTimerHabit: Binding<Habit?>, onDelete: @escaping (Habit) -> Void = { _ in }) {
+    init(habit: Habit, isWideView: Bool = false, onDelete: @escaping (Habit) -> Void = { _ in }) {
         self._habit = ObservedObject(wrappedValue: habit)
         self.isWideView = isWideView
-        self._activeTimerHabit = activeTimerHabit
         self.onDelete = onDelete
         self._viewModel = StateObject(wrappedValue: HabitRowViewModel(habit: habit))
     }
@@ -56,8 +54,8 @@ struct HabitRowView: View {
                 
                 Text("\(progress.completed)/\(progress.total) steps")
                     .font(.caption2)
-                    .foregroundColor(habit.updatedGoalMetToday ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
-                    .fontWeight(habit.updatedGoalMetToday ? .bold : .medium)
+                    .foregroundColor(habit.routineGoalMetToday ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
+                    .fontWeight(habit.routineGoalMetToday ? .bold : .medium)
                 
                 Spacer()
                 
@@ -132,7 +130,6 @@ struct HabitRowView: View {
                 customLogValidationMessage: $customLogValidationMessage,
                 showingEditHabit: $showingEditHabit,
                 showingDeleteConfirmation: $showingDeleteConfirmation,
-                activeTimerHabit: $activeTimerHabit,
                 onDelete: onDelete,
                 presentCustomLogPrompt: presentCustomLogPrompt,
                 attemptCustomLogSave: attemptCustomLogSave,
@@ -414,25 +411,9 @@ struct HabitRowView: View {
         habit.longestStreak = max(habit.longestStreak, habit.currentStreak)
     }
 
-    private func deleteHabit() {
-        withAnimation {
-            habit.isActive = false
-            if activeTimerHabit?.objectID == habit.objectID {
-                activeTimerHabit = nil
-            }
-        }
-
-        do {
-            try viewContext.save()
-            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
-        } catch {
-            viewContext.rollback()
-        }
-    }
-
     private func shouldPromptForJournal() -> Bool {
         if habit.isTimerHabit { return habit.timerGoalMetToday }
-        if habit.isRoutineHabit { return habit.updatedGoalMetToday }
+        if habit.isRoutineHabit { return habit.routineGoalMetToday }
         return habit.goalMetToday
     }
 
@@ -448,10 +429,8 @@ struct HabitRowView: View {
             let allowOverrun = habit.timerGoalMetToday
             if viewModel.isTimerRunning {
                 viewModel.pauseTimer(saveProgress: true)
-                activeTimerHabit = nil
             } else {
                 viewModel.startTimer(allowOverrun: allowOverrun)
-                activeTimerHabit = habit
             }
             return
         }
@@ -766,7 +745,6 @@ private struct HabitRowModifiers: ViewModifier {
     @Binding var customLogValidationMessage: String?
     @Binding var showingEditHabit: Bool
     @Binding var showingDeleteConfirmation: Bool
-    @Binding var activeTimerHabit: Habit?
     let onDelete: (Habit) -> Void
     let presentCustomLogPrompt: () -> Void
     let attemptCustomLogSave: () -> Void
@@ -872,12 +850,10 @@ private struct HabitRowModifiers: ViewModifier {
             onToggleTimer: {
                 if viewModel.isTimerRunning {
                     viewModel.pauseTimer(saveProgress: true)
-                    activeTimerHabit = nil
                 } else {
                     // If already met goal, resume in overrun; else count toward goal.
                     let allowOverrun = habit.timerGoalMetToday || ((viewModel.totalElapsedSecondsToday / 60.0) >= habit.goalValue)
                     viewModel.startTimer(allowOverrun: allowOverrun)
-                    activeTimerHabit = habit
                 }
             }
         )
@@ -966,7 +942,6 @@ private struct HabitRowModifiers: ViewModifier {
         // Clean up timer if this view disappears
         if viewModel.isTimerRunning { 
             viewModel.pauseTimer(saveProgress: true)
-            activeTimerHabit = nil 
         }
     }
     

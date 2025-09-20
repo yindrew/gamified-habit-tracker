@@ -69,19 +69,6 @@ final class HabitRowViewModel: ObservableObject {
         return Calendar.current.isDateInToday(lastCompleted)
     }
 
-    var completionsToday: Int {
-        let today = Calendar.current.startOfDay(for: Date())
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
-
-        let todayCompletions = habit.completions?.filtered(using: NSPredicate(
-            format: "completedDate >= %@ AND completedDate < %@",
-            today as NSDate,
-            tomorrow as NSDate
-        )) as? Set<HabitCompletion>
-
-        return todayCompletions?.filter { !$0.isJournalOnly }.count ?? 0
-    }
-
     var progressPercentage: Double {
         if habit.isRoutineHabit {
             return habit.updatedRoutineProgressPercentage
@@ -94,22 +81,12 @@ final class HabitRowViewModel: ObservableObject {
         } else if habit.isScheduledToday {
             return habit.progressPercentage
         } else {
-            return completionsToday > 0 ? 1.0 : 0.0
+            return Int32(habit.todaysCompletions.count) > 0 ? 1.0 : 0.0
         }
     }
 
     var isCompletedForDisplay: Bool {
-        if habit.isRoutineHabit {
-            return habit.updatedGoalMetToday
-        } else if habit.isTimerHabit {
-            return habit.timerGoalMetToday
-        } else if habit.isEtherealHabit {
-            return habit.goalMetToday
-        } else if habit.isScheduledToday {
-            return habit.goalMetToday
-        } else {
-            return completionsToday > 0
-        }
+        return habit.goalMetToday
     }
 
     var timerRemainingDisplay: String {
@@ -324,7 +301,7 @@ final class HabitRowViewModel: ObservableObject {
             fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
         }
 
-        let isNowFullyCompleted = habit.updatedGoalMetToday
+        let isNowFullyCompleted = habit.routineGoalMetToday
         if !habit.isEtherealHabit && isNowFullyCompleted {
             habit.totalCompletions += 1
             habit.lastCompletedDate = Date()
@@ -367,7 +344,7 @@ final class HabitRowViewModel: ObservableObject {
 
     private var shouldPromptForJournal: Bool {
         if habit.isTimerHabit { return habit.timerGoalMetToday }
-        if habit.isRoutineHabit { return habit.updatedGoalMetToday }
+        if habit.isRoutineHabit { return habit.routineGoalMetToday }
         return habit.goalMetToday
     }
 

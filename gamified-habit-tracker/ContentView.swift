@@ -10,13 +10,14 @@ import CoreData
 
 struct ContentView: View {
     @Environment(\.managedObjectContext) private var viewContext
+
     @State private var activeAddSheet: AddHabitSheet?
     @State private var showCelebrationToast = false
     @State private var lastCelebrationDate: Date?
-    @State private var showOnlyTodaysHabits = false
-    @State private var activeTimerHabit: Habit?
+
     @AppStorage("colorScheme") private var colorSchemePreference: String = "system"
-    @AppStorage("habitLayoutStyle") private var habitLayoutStyle: String = "narrow"
+    @AppStorage("habitLayoutStyle") private var habitLayoutStyle: String = "wide"
+    @AppStorage("showOnlyTodaysHabits") private var showOnlyTodaysHabits = false
 
     private enum AddHabitSheet: String, Identifiable {
         case standard
@@ -55,30 +56,9 @@ struct ContentView: View {
             
             // For scheduled habits, check completion status
             if isScheduled1 && isScheduled2 {
-                // Use proper completion logic for routine vs frequency habits
-                let isCompleted1: Bool
-                let isCompleted2: Bool
-                
-                if habit1.isRoutineHabit {
-                    isCompleted1 = habit1.updatedGoalMetToday
-                } else if habit1.isTimerHabit {
-                    isCompleted1 = habit1.timerGoalMetToday
-                } else {
-                    let completions1 = habit1.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
-                    let target1 = habit1.isScheduledToday ? habit1.targetFrequency : 0
-                    isCompleted1 = completions1 >= target1
-                }
-                
-                if habit2.isRoutineHabit {
-                    isCompleted2 = habit2.updatedGoalMetToday
-                } else if habit2.isTimerHabit {
-                    isCompleted2 = habit2.timerGoalMetToday
-                } else {
-                    let completions2 = habit2.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
-                    let target2 = habit2.isScheduledToday ? habit2.targetFrequency : 0
-                    isCompleted2 = completions2 >= target2
-                }
-                
+                let isCompleted1 = habit1.goalMetToday
+                let isCompleted2 = habit2.goalMetToday
+
                 // Incomplete scheduled habits first
                 if isCompleted1 != isCompleted2 {
                     return !isCompleted1 && isCompleted2
@@ -94,17 +74,6 @@ struct ContentView: View {
         return habits.filter { $0.isScheduledToday }
     }
     
-    private var completedHabitsForToday: [Habit] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        
-        return habits.filter { habit in
-            let completions = habit.completions?.filtered(using: NSPredicate(format: "completedDate >= %@ AND completedDate < %@", today as NSDate, tomorrow as NSDate)).count ?? 0
-            return completions > 0
-        }
-    }
-    
     private var scheduledHabitsCompletedToday: [Habit] {        
         return scheduledHabitsForToday.filter { habit in
             return habit.goalMetToday
@@ -115,6 +84,23 @@ struct ContentView: View {
         let scheduledCount = scheduledHabitsForToday.count
         let completedScheduledCount = scheduledHabitsCompletedToday.count
         return scheduledCount > 0 && scheduledCount == completedScheduledCount
+    }
+
+    private func checkForCelebration() {
+        guard allHabitsCompletedToday else { return }
+        
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        // Check if we've already shown celebration today
+        if let lastCelebration = lastCelebrationDate,
+            calendar.isDate(lastCelebration, inSameDayAs: today) {
+            return
+        }
+        
+        // Show celebration and mark date
+        lastCelebrationDate = today
+        showCelebrationToast = true
     }
     
     var body: some View {
@@ -198,28 +184,7 @@ struct ContentView: View {
             HabitsListView(
                 sortedHabits: sortedHabits,
                 isWideView: isWideView,
-                activeTimerHabit: $activeTimerHabit,
-                onDeleteHabit: deleteHabit
             )
-        }
-    }
-
-    private func deleteHabit(_ habit: Habit) {
-        let shouldClearTimer = activeTimerHabit?.objectID == habit.objectID
-
-        withAnimation {
-            habit.isActive = false
-            if shouldClearTimer {
-                activeTimerHabit = nil
-            }
-        }
-
-        do {
-            try viewContext.save()
-            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
-        } catch {
-            let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
         }
     }
 
@@ -238,7 +203,7 @@ struct ContentView: View {
     }
 
     private var filterMenuIcon: String {
-        showOnlyTodaysHabits ? "square.grid.2x2" : "calendar"
+        showOnlyTodaysHabits ? "list.bullet" : "calendar.circle"
     }
 
     private var layoutMenuTitle: String {
@@ -246,7 +211,7 @@ struct ContentView: View {
     }
 
     private var layoutMenuIcon: String {
-        isWideView ? "rectangle.split.2x1" : "rectangle.split.1x2"
+        isWideView ? "rectangle.compress.vertical" : "rectangle.expand.vertical"
     }
 
     private var currentColorScheme: ColorScheme? {
@@ -292,25 +257,8 @@ struct ContentView: View {
         }
     }
     
-    private func checkForCelebration() {
-        guard allHabitsCompletedToday else { return }
-        
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        
-        // Check if we've already shown celebration today
-        if let lastCelebration = lastCelebrationDate,
-           calendar.isDate(lastCelebration, inSameDayAs: today) {
-            return
-        }
-        
-        // Show celebration and mark date
-        lastCelebrationDate = today
-        showCelebrationToast = true
-    }
+
 }
-
-
 
 private let itemFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -344,8 +292,6 @@ private struct EmptyHabitsView: View {
 private struct HabitsListView: View {
     let sortedHabits: [Habit]
     let isWideView: Bool
-    @Binding var activeTimerHabit: Habit?
-    let onDeleteHabit: (Habit) -> Void
 
     var body: some View {
         List {
@@ -353,8 +299,6 @@ private struct HabitsListView: View {
                 HabitRowView(
                     habit: habit,
                     isWideView: isWideView,
-                    activeTimerHabit: $activeTimerHabit,
-                    onDelete: { _ in onDeleteHabit(habit) }
                 )
                 .background(
                     NavigationLink(
@@ -362,7 +306,7 @@ private struct HabitsListView: View {
                     ) {
                         EmptyView()
                     }
-                    .opacity(0) // invisible but tappable
+                    .opacity(0)
                 )
                 .listRowInsets(EdgeInsets(top: 4, leading: isWideView ? 12 : 0, bottom: 4, trailing: isWideView ? 12 : 0))
                 .listRowBackground(Color.clear)
@@ -371,105 +315,6 @@ private struct HabitsListView: View {
         .listStyle(PlainListStyle())
         .padding(.top, isWideView ? -12 : -20)
         .contentMargins(.top, isWideView ? -8 : -12)
-    }
-}
-
-
-private struct EtherealHabitQuickAddView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var name: String = ""
-    @State private var details: String = ""
-    @State private var showValidationError = false
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case name
-        case description
-    }
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Details")) {
-                    TextField("Task name", text: $name)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled(false)
-                        .focused($focusedField, equals: .name)
-
-                    TextField("Description (optional)", text: $details, axis: .vertical)
-                        .lineLimit(2...4)
-                        .textInputAutocapitalization(.sentences)
-                        .focused($focusedField, equals: .description)
-                }
-
-                if showValidationError {
-                    Section {
-                        Text("Please provide a name before creating this habit.")
-                            .font(.footnote)
-                            .foregroundColor(.red)
-                    }
-                }
-            }
-            .navigationTitle("Quick Task")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { createHabit() }
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .onAppear {
-                focusedField = .name
-            }
-        }
-    }
-
-    private func createHabit() {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            showValidationError = true
-            focusedField = .name
-            return
-        }
-
-        let habit = Habit(context: viewContext)
-        habit.id = UUID()
-        habit.name = trimmedName
-
-        let trimmedDescription = details.trimmingCharacters(in: .whitespacesAndNewlines)
-        habit.habitDescription = trimmedDescription.isEmpty ? nil : trimmedDescription
-
-        habit.icon = "sparkles"
-        habit.colorHex = "#8E8CF2"
-        habit.targetFrequency = 1
-        habit.metricValue = 1
-        habit.metricUnit = "task"
-        habit.goalValue = 1
-        habit.currentStreak = 0
-        habit.longestStreak = 0
-        habit.totalCompletions = 0
-        habit.createdDate = Date()
-        habit.lastCompletedDate = nil
-        habit.isActive = true
-        habit.notificationsEnabled = false
-        habit.notificationTime = nil
-        habit.schedule = .daily
-        habit.habitType = "ethereal"
-
-        do {
-            try viewContext.save()
-            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
-            dismiss()
-        } catch {
-            #if DEBUG
-            print("[QuickAdd] Failed to create ethereal habit: \(error)")
-            #endif
-        }
     }
 }
 
