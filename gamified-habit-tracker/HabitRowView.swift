@@ -56,8 +56,8 @@ struct HabitRowView: View {
                 
                 Text("\(progress.completed)/\(progress.total) steps")
                     .font(.caption2)
-                    .foregroundColor(habit.updatedGoalMetToday ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
-                    .fontWeight(habit.updatedGoalMetToday ? .bold : .medium)
+                    .foregroundColor(habit.routineGoalMetToday ? Color(hex: habit.colorHex ?? "#007AFF") : .secondary)
+                    .fontWeight(habit.routineGoalMetToday ? .bold : .medium)
                 
                 Spacer()
                 
@@ -414,25 +414,9 @@ struct HabitRowView: View {
         habit.longestStreak = max(habit.longestStreak, habit.currentStreak)
     }
 
-    private func deleteHabit() {
-        withAnimation {
-            habit.isActive = false
-            if activeTimerHabit?.objectID == habit.objectID {
-                activeTimerHabit = nil
-            }
-        }
-
-        do {
-            try viewContext.save()
-            HabitWidgetExporter.shared.scheduleSync(using: viewContext)
-        } catch {
-            viewContext.rollback()
-        }
-    }
-
     private func shouldPromptForJournal() -> Bool {
         if habit.isTimerHabit { return habit.timerGoalMetToday }
-        if habit.isRoutineHabit { return habit.updatedGoalMetToday }
+        if habit.isRoutineHabit { return habit.routineGoalMetToday }
         return habit.goalMetToday
     }
 

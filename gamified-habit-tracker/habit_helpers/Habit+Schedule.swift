@@ -314,17 +314,19 @@ extension Habit {
         return min(currentProgress / goalValue, 1.0)
     }
 
+
     /// Whether the goal has been met today
     var goalMetToday: Bool {
-        return currentProgress >= goalValue
+        if isRoutineHabit {
+            return routineGoalMetToday
+        } else if isTimerHabit {
+            return timerGoalMetToday
+        } else {
+            return frequencyGoalMetToday
+        }
     }
 
-    /// Completions today
-    private var completionsToday: Int32 {
-        Int32(todaysCompletions.count)
-    }
-
-    private var todaysCompletions: [HabitCompletion] {
+    var todaysCompletions: [HabitCompletion] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
@@ -334,56 +336,11 @@ extension Habit {
         return todayCompletions.filter { !$0.isJournalOnly }
     }
 
-    var frequencyMetricProgressToday: Double {
-        todaysCompletions.reduce(0) { running, completion in
-            let amount = completion.metricAmount
-            if amount > 0 {
-                return running + amount
-            }
-            return running + metricValue
-        }
-    }
 
     var allowsFractionalMetrics: Bool {
         if isTimerHabit { return true }
         if isRoutineHabit { return false }
         return metricValue.truncatingRemainder(dividingBy: 1) != 0 || todaysCompletions.contains { $0.metricAmount > 0 && $0.metricAmount.truncatingRemainder(dividingBy: 1) != 0 }
-    }
-    
-    // MARK: - Routine Habit Support
-    
-    /// Whether this is a routine habit
-    var isRoutineHabit: Bool {
-        return habitType == "routine"
-    }
-    
-    /// Whether this is a timer habit
-    var isTimerHabit: Bool {
-        return habitType == "timer"
-    }
-    
-    /// Whether this is an ethereal (single-shot) habit
-    var isEtherealHabit: Bool {
-        return habitType == "ethereal"
-    }
-    
-    /// Get routine steps as array
-    var routineStepsArray: [String] {
-        guard isRoutineHabit, let stepsString = routineSteps else { return [] }
-        return stepsString.components(separatedBy: "|||").filter { !$0.isEmpty }
-    }
-    
-    /// For routine habits, override progress calculation
-    var routineProgressPercentage: Double {
-        guard isRoutineHabit else { return progressPercentage }
-        // For now, routine habits are either 0% or 100% complete
-        return goalMetToday ? 1.0 : 0.0
-    }
-    
-    /// For routine habits, display completion status
-    var routineProgressString: String {
-        guard isRoutineHabit else { return currentProgressString }
-        return goalMetToday ? "Completed" : "Not completed"
     }
     
     /// Get completed steps for today
@@ -398,86 +355,6 @@ extension Habit {
                 completedSteps.formUnion(steps)
             }
         }
-
         return completedSteps
-    }
-    
-    /// Get routine progress as completed/total steps
-    var routineProgress: (completed: Int, total: Int) {
-        guard isRoutineHabit else { return (0, 0) }
-        let total = routineStepsArray.count
-        let completed = completedStepsToday.count
-        return (completed, total)
-    }
-    
-    /// Updated progress percentage for routine habits
-    var updatedRoutineProgressPercentage: Double {
-        guard isRoutineHabit else { return progressPercentage }
-        let progress = routineProgress
-        guard progress.total > 0 else { return 0.0 }
-        return Double(progress.completed) / Double(progress.total)
-    }
-    
-    /// Updated goal met for routine habits
-    var updatedGoalMetToday: Bool {
-        guard isRoutineHabit else { return goalMetToday }
-        let progress = routineProgress
-        return progress.completed == progress.total && progress.total > 0
-    }
-    
-    // MARK: - Timer Habit Support
-    
-    /// Get total timer minutes completed today
-    var timerMinutesToday: Double {
-        guard isTimerHabit else { return 0.0 }
-        
-        let todayCompletions = todaysCompletions
-
-        var totalMinutes: Double = 0.0
-        for completion in todayCompletions {
-            totalMinutes += completion.timerDuration
-        }
-
-        return totalMinutes
-    }
-    
-    /// Timer progress percentage
-    var timerProgressPercentage: Double {
-        guard isTimerHabit && goalValue > 0 else { return 0.0 }
-        return min(timerMinutesToday / goalValue, 1.0)
-    }
-    
-    /// Timer progress string
-    var timerProgressString: String {
-        guard isTimerHabit else { return currentProgressString }
-        let completed = timerMinutesToday
-        let goal = goalValue
-        
-        let completedHours = Int(completed / 60)
-        let completedMins = Int(completed.truncatingRemainder(dividingBy: 60))
-        let goalHours = Int(goal / 60)
-        let goalMins = Int(goal.truncatingRemainder(dividingBy: 60))
-        
-        let completedStr: String
-        if completedHours > 0 {
-            completedStr = completedMins > 0 ? "\(completedHours)h \(completedMins)m" : "\(completedHours)h"
-        } else {
-            completedStr = "\(completedMins)m"
-        }
-        
-        let goalStr: String
-        if goalHours > 0 {
-            goalStr = goalMins > 0 ? "\(goalHours)h \(goalMins)m" : "\(goalHours)h"
-        } else {
-            goalStr = "\(goalMins)m"
-        }
-        
-        return "\(completedStr) / \(goalStr)"
-    }
-    
-    /// Whether timer goal is met today
-    var timerGoalMetToday: Bool {
-        guard isTimerHabit else { return goalMetToday }
-        return timerMinutesToday >= goalValue
     }
 }
