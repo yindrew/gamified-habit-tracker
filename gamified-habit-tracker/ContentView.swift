@@ -81,8 +81,8 @@ struct ContentView: View {
     }
     
     private var allHabitsCompletedToday: Bool {
-        let scheduledCount = scheduledHabitsForToday.count
-        let completedScheduledCount = scheduledHabitsCompletedToday.count
+        let scheduledCount = scheduledHabitsForToday.filter { !$0.isEtherealHabit }.count
+        let completedScheduledCount = scheduledHabitsCompletedToday.filter { !$0.isEtherealHabit }.count
         return scheduledCount > 0 && scheduledCount == completedScheduledCount
     }
 
