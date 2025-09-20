@@ -14,7 +14,6 @@ struct ContentView: View {
     @State private var activeAddSheet: AddHabitSheet?
     @State private var showCelebrationToast = false
     @State private var lastCelebrationDate: Date?
-    @State private var activeTimerHabit: Habit?
 
     @AppStorage("colorScheme") private var colorSchemePreference: String = "system"
     @AppStorage("habitLayoutStyle") private var habitLayoutStyle: String = "wide"
@@ -185,7 +184,6 @@ struct ContentView: View {
             HabitsListView(
                 sortedHabits: sortedHabits,
                 isWideView: isWideView,
-                activeTimerHabit: $activeTimerHabit,
             )
         }
     }
@@ -294,7 +292,6 @@ private struct EmptyHabitsView: View {
 private struct HabitsListView: View {
     let sortedHabits: [Habit]
     let isWideView: Bool
-    @Binding var activeTimerHabit: Habit?
 
     var body: some View {
         List {
@@ -302,7 +299,6 @@ private struct HabitsListView: View {
                 HabitRowView(
                     habit: habit,
                     isWideView: isWideView,
-                    activeTimerHabit: $activeTimerHabit,
                 )
                 .background(
                     NavigationLink(
